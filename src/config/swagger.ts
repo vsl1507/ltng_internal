@@ -3,12 +3,12 @@ import swaggerJsdoc from "swagger-jsdoc";
 const baseOptions = {
   openapi: "3.0.0",
   info: {
-    title: "FB Account Manager API",
+    title: "LTNG Internal API",
     version: "1.0.0",
-    description: "API documentation for Facebook Account Management System",
+    description: "API documentation for LTNG Internal System",
     contact: {
       name: "API Support",
-      email: "support@example.com",
+      email: "visal.ou1507@gmail.com",
     },
   },
   servers: [
