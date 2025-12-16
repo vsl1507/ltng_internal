@@ -13,14 +13,16 @@ export class FBAccountService {
   ): Promise<PaginatedResponse<FBAccount>> {
     const {
       search = "",
-      status = "",
-      friend_suggestion = "",
+      acc_status = "",
+      acc_friend_suggestion = "",
       creation_year = "",
       sort_by = "acc_date_update",
       sort_order = "DESC",
       page = 1,
       limit = 50,
     } = filters;
+
+    console.log("Filters received:", filters);
 
     let query = "SELECT * FROM ltng_media_facebook_acc WHERE 1=1";
     const params: any[] = [];
@@ -34,15 +36,15 @@ export class FBAccountService {
     }
 
     // Status filter
-    if (status && status !== "All") {
-      query += " AND status = ?";
-      params.push(status);
+    if (acc_status && acc_status !== "All") {
+      query += " AND acc_status = ?";
+      params.push(acc_status);
     }
 
     // Friend suggestion filter
-    if (friend_suggestion && friend_suggestion !== "All") {
+    if (acc_friend_suggestion && acc_friend_suggestion !== "All") {
       query += " AND acc_friend_suggestion = ?";
-      params.push(friend_suggestion === "Yes" ? 1 : 0);
+      params.push(acc_friend_suggestion);
     }
 
     // Creation year filter
@@ -118,27 +120,27 @@ export class FBAccountService {
        (acc_name, acc_username, acc_password, acc_2fa, acc_cookie, acc_uid, 
         acc_phone, acc_email, acc_gender, acc_friend_count, acc_friend_suggestion,
         acc_set_intro, acc_set_pic, acc_follower, acc_date_created, acc_device, 
-        acc_notes, status) 
+        acc_notes, acc_status) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         account.acc_name,
         account.acc_username,
         account.acc_password,
-        account.acc_2fa || null,
+        account.acc_2fa,
         account.acc_cookie || null,
-        account.acc_uid || null,
-        account.acc_phone || null,
-        account.acc_email || null,
-        account.acc_gender || null,
+        account.acc_uid,
+        account.acc_phone,
+        account.acc_email,
+        account.acc_gender,
         account.acc_friend_count || 0,
-        account.acc_friend_suggestion || false,
-        account.acc_set_intro || false,
-        account.acc_set_pic || false,
-        account.acc_follower || false,
-        account.acc_date_created || null,
+        account.acc_friend_suggestion,
+        account.acc_set_intro,
+        account.acc_set_pic || "NO",
+        account.acc_follower,
+        account.acc_date_created,
         account.acc_device || null,
-        account.acc_notes || null,
-        account.status,
+        account.acc_notes,
+        account.acc_status,
       ]
     );
 
@@ -221,9 +223,9 @@ export class FBAccountService {
       fields.push("acc_notes = ?");
       values.push(account.acc_notes);
     }
-    if (account.status !== undefined) {
-      fields.push("status = ?");
-      values.push(account.status);
+    if (account.acc_status !== undefined) {
+      fields.push("acc_status = ?");
+      values.push(account.acc_status);
     }
 
     if (fields.length === 0) return false;
@@ -252,7 +254,7 @@ export class FBAccountService {
 
     const placeholders = ids.map(() => "?").join(",");
     const [result] = await pool.query<ResultSetHeader>(
-      `UPDATE ltng_media_facebook_acc SET status = ? WHERE acc_id IN (${placeholders})`,
+      `UPDATE ltng_media_facebook_acc SET acc_status = ? WHERE acc_id IN (${placeholders})`,
       [status, ...ids]
     );
     return result.affectedRows;

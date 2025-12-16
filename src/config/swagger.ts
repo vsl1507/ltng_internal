@@ -13,14 +13,15 @@ const baseOptions = {
   },
   servers: [
     {
-      url: `http://localhost:${process.env.PORT}`,
-      description: "Local server",
-    },
-    {
       url: `http://${process.env.DB_HOST}:${process.env.PORT}`,
       description: "Development server",
     },
+    {
+      url: `http://localhost:${process.env.PORT}`,
+      description: "Local server",
+    },
   ],
+
   components: {
     schemas: {
       FBAccount: {
@@ -124,11 +125,19 @@ const baseOptions = {
             description: "Additional notes",
             example: "Primary account for marketing",
           },
-          status: {
+          acc_status: {
             type: "string",
-            enum: ["Active", "Checkpoint", "Locked", "Disabled"],
+            enum: [
+              "ACTIVE",
+              "CHECKPOINT",
+              "LOCKED",
+              "DISABLED",
+              "APPEAL_CHECKPOINT",
+              "ERROR_PASSWORD",
+              "ERROR_2FA",
+            ],
             description: "Account status",
-            example: "Active",
+            example: "ACTIVE",
           },
         },
       },
@@ -162,10 +171,18 @@ const baseOptions = {
           },
           acc_device: { type: "string", example: "iPhone 13" },
           acc_notes: { type: "string", example: "Updated notes" },
-          status: {
+          acc_status: {
             type: "string",
-            enum: ["Active", "Checkpoint", "Locked", "Disabled"],
-            example: "Active",
+            enum: [
+              "ACTIVE",
+              "CHECKPOINT",
+              "LOCKED",
+              "DISABLED",
+              "APPEAL_CHECKPOINT",
+              "ERROR_PASSWORD",
+              "ERROR_2FA",
+            ],
+            example: "ACTIVE",
           },
         },
       },
@@ -293,7 +310,7 @@ const baseOptions = {
       },
       BulkUpdateRequest: {
         type: "object",
-        required: ["ids", "status"],
+        required: ["ids", "acc_status"],
         properties: {
           ids: {
             type: "array",
@@ -302,10 +319,18 @@ const baseOptions = {
             },
             example: [1, 2, 3, 5],
           },
-          status: {
+          acc_status: {
             type: "string",
-            enum: ["Active", "Checkpoint", "Locked", "Disabled"],
-            example: "Active",
+            enum: [
+              "ACTIVE",
+              "CHECKPOINT",
+              "LOCKED",
+              "DISABLED",
+              "APPEAL_CHECKPOINT",
+              "ERROR_PASSWORD",
+              "ERROR_2FA",
+            ],
+            example: "ACTIVE",
           },
         },
       },

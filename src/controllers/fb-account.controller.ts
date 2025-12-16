@@ -9,8 +9,8 @@ export class FBAccountController {
     try {
       const filters: FBAccountFilters = {
         search: req.query.search as string,
-        status: req.query.status as string,
-        friend_suggestion: req.query.friend_suggestion as string,
+        acc_status: req.query.acc_status as string,
+        acc_friend_suggestion: req.query.acc_friend_suggestion as string,
         creation_year: req.query.creation_year as string,
         sort_by: req.query.sort_by as string,
         sort_order: (req.query.sort_order as "ASC" | "DESC") || "DESC",
@@ -61,8 +61,9 @@ export class FBAccountController {
     try {
       const accountData: FBAccount = req.body;
 
-      // Validation
+      // Validation - Based on NOT NULL fields from database
       const validationErrors = [];
+
       if (!accountData.acc_name) {
         validationErrors.push({
           field: "acc_name",
@@ -79,6 +80,142 @@ export class FBAccountController {
         validationErrors.push({
           field: "acc_password",
           message: "Password is required",
+        });
+      }
+      if (!accountData.acc_2fa) {
+        validationErrors.push({ field: "acc_2fa", message: "2FA is required" });
+      }
+      if (!accountData.acc_uid) {
+        validationErrors.push({ field: "acc_uid", message: "UID is required" });
+      }
+      if (!accountData.acc_phone) {
+        validationErrors.push({
+          field: "acc_phone",
+          message: "Phone is required",
+        });
+      }
+      if (!accountData.acc_email) {
+        validationErrors.push({
+          field: "acc_email",
+          message: "Email is required",
+        });
+      }
+      if (!accountData.acc_gender) {
+        validationErrors.push({
+          field: "acc_gender",
+          message: "Gender is required",
+        });
+      }
+      if (accountData.acc_friend_count === undefined) {
+        validationErrors.push({
+          field: "acc_friend_count",
+          message: "Friend count is required",
+        });
+      }
+      if (!accountData.acc_friend_suggestion) {
+        validationErrors.push({
+          field: "acc_friend_suggestion",
+          message: "Friend suggestion is required",
+        });
+      }
+      if (!accountData.acc_set_intro) {
+        validationErrors.push({
+          field: "acc_set_intro",
+          message: "Set intro is required",
+        });
+      }
+      if (!accountData.acc_set_pic) {
+        validationErrors.push({
+          field: "acc_set_pic",
+          message: "Set pic is required",
+        });
+      }
+      if (!accountData.acc_follower) {
+        validationErrors.push({
+          field: "acc_follower",
+          message: "Follower is required",
+        });
+      }
+      if (!accountData.acc_date_created) {
+        validationErrors.push({
+          field: "acc_date_created",
+          message: "Date created is required",
+        });
+      }
+      if (!accountData.acc_notes) {
+        validationErrors.push({
+          field: "acc_notes",
+          message: "Notes is required",
+        });
+      }
+      if (!accountData.acc_status) {
+        validationErrors.push({
+          field: "acc_status",
+          message: "Status is required",
+        });
+      }
+
+      // Validate enum values
+      if (
+        accountData.acc_gender &&
+        !["MALE", "FEMALE"].includes(accountData.acc_gender)
+      ) {
+        validationErrors.push({
+          field: "acc_gender",
+          message: "Gender must be MALE or FEMALE",
+        });
+      }
+      if (
+        accountData.acc_friend_suggestion &&
+        !["YES", "NO"].includes(accountData.acc_friend_suggestion)
+      ) {
+        validationErrors.push({
+          field: "acc_friend_suggestion",
+          message: "Friend suggestion must be YES or NO",
+        });
+      }
+      if (
+        accountData.acc_set_intro &&
+        !["YES", "NO"].includes(accountData.acc_set_intro)
+      ) {
+        validationErrors.push({
+          field: "acc_set_intro",
+          message: "Set intro must be YES or NO",
+        });
+      }
+      if (
+        accountData.acc_set_pic &&
+        !["YES", "NO"].includes(accountData.acc_set_pic)
+      ) {
+        validationErrors.push({
+          field: "acc_set_pic",
+          message: "Set pic must be YES or NO",
+        });
+      }
+      if (
+        accountData.acc_follower &&
+        !["YES", "NO"].includes(accountData.acc_follower)
+      ) {
+        validationErrors.push({
+          field: "acc_follower",
+          message: "Follower must be YES or NO",
+        });
+      }
+      if (
+        accountData.acc_status &&
+        ![
+          "ACTIVE",
+          "CHECKPOINT",
+          "LOCKED",
+          "DISABLED",
+          "APPEAL_CHECKPOINT",
+          "ERROR_PASSWORD",
+          "ERROR_2FA",
+        ].includes(accountData.acc_status)
+      ) {
+        validationErrors.push({
+          field: "acc_status",
+          message: "Invalid status value",
         });
       }
 
@@ -169,7 +306,7 @@ export class FBAccountController {
   // Bulk update status
   async bulkUpdateStatus(req: Request, res: Response): Promise<void> {
     try {
-      const { ids, status } = req.body;
+      const { ids, acc_status } = req.body;
 
       // Validation
       const validationErrors = [];
@@ -179,19 +316,10 @@ export class FBAccountController {
           message: "Account IDs array is required",
         });
       }
-      if (!status) {
+      if (!acc_status) {
         validationErrors.push({
-          field: "status",
+          field: "acc_status",
           message: "Status is required",
-        });
-      }
-      if (
-        status &&
-        !["Active", "Checkpoint", "Locked", "Disabled"].includes(status)
-      ) {
-        validationErrors.push({
-          field: "status",
-          message: "Invalid status value",
         });
       }
 
@@ -200,7 +328,10 @@ export class FBAccountController {
         return;
       }
 
-      const affectedRows = await fbAccountService.bulkUpdateStatus(ids, status);
+      const affectedRows = await fbAccountService.bulkUpdateStatus(
+        ids,
+        acc_status
+      );
 
       ResponseHandler.success(
         res,

@@ -1,5 +1,5 @@
 import ApiRouter from "../utils/api-router";
-import FBAccountController from "../controllers/fb-account.controller";
+import fbAccountController from "../controllers/fb-account.controller";
 
 const apiRouter = new ApiRouter();
 
@@ -7,25 +7,34 @@ const apiRouter = new ApiRouter();
 apiRouter.addRoute({
   method: "get",
   path: "/",
-  handler: (req, res) => FBAccountController.getAllAccounts(req, res),
+  handler: (req, res) => fbAccountController.getAllAccounts(req, res),
   summary: "Get all FB accounts with filters and pagination",
   tags: ["FB Accounts"],
   queryParams: [
     {
       name: "search",
       type: "string",
-      description: "Search by username, FB UID, or notes",
+      description: "Search by username, FB UID, name, or notes",
     },
     {
-      name: "status",
+      name: "acc_status",
       type: "string",
-      enum: ["All", "Active", "Checkpoint", "Locked", "Disabled"],
+      enum: [
+        "All",
+        "ACTIVE",
+        "CHECKPOINT",
+        "LOCKED",
+        "DISABLED",
+        "APPEAL_CHECKPOINT",
+        "ERROR_PASSWORD",
+        "ERROR_2FA",
+      ],
       description: "Filter by account status",
     },
     {
-      name: "friend_suggestion",
+      name: "acc_friend_suggestion",
       type: "string",
-      enum: ["All", "Yes", "No"],
+      enum: ["All", "YES", "NO"],
       description: "Filter by friend suggestion",
     },
     {
@@ -76,7 +85,7 @@ apiRouter.addRoute({
 apiRouter.addRoute({
   method: "get",
   path: "/:id",
-  handler: (req, res) => FBAccountController.getAccountById(req, res),
+  handler: (req, res) => fbAccountController.getAccountById(req, res),
   summary: "Get account by ID",
   tags: ["FB Accounts"],
   pathParams: [
@@ -107,7 +116,7 @@ apiRouter.addRoute({
 apiRouter.addRoute({
   method: "post",
   path: "/",
-  handler: (req, res) => FBAccountController.createAccount(req, res),
+  handler: (req, res) => fbAccountController.createAccount(req, res),
   summary: "Create new account",
   tags: ["FB Accounts"],
   requestBody: {
@@ -150,7 +159,7 @@ apiRouter.addRoute({
 apiRouter.addRoute({
   method: "put",
   path: "/:id",
-  handler: (req, res) => FBAccountController.updateAccount(req, res),
+  handler: (req, res) => fbAccountController.updateAccount(req, res),
   summary: "Update account",
   tags: ["FB Accounts"],
   pathParams: [
@@ -195,7 +204,7 @@ apiRouter.addRoute({
 apiRouter.addRoute({
   method: "delete",
   path: "/:id",
-  handler: (req, res) => FBAccountController.deleteAccount(req, res),
+  handler: (req, res) => fbAccountController.deleteAccount(req, res),
   summary: "Delete account",
   tags: ["FB Accounts"],
   pathParams: [
@@ -226,7 +235,7 @@ apiRouter.addRoute({
 apiRouter.addRoute({
   method: "post",
   path: "/bulk/update-status",
-  handler: (req, res) => FBAccountController.bulkUpdateStatus(req, res),
+  handler: (req, res) => fbAccountController.bulkUpdateStatus(req, res),
   summary: "Bulk update account status",
   tags: ["FB Accounts"],
   requestBody: {
@@ -257,7 +266,7 @@ apiRouter.addRoute({
 apiRouter.addRoute({
   method: "post",
   path: "/bulk/delete",
-  handler: (req, res) => FBAccountController.bulkDelete(req, res),
+  handler: (req, res) => fbAccountController.bulkDelete(req, res),
   summary: "Bulk delete accounts",
   tags: ["FB Accounts"],
   requestBody: {
