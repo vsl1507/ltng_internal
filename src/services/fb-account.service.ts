@@ -22,8 +22,6 @@ export class FBAccountService {
       limit = 50,
     } = filters;
 
-    console.log("Filters received:", filters);
-
     let query = "SELECT * FROM ltng_media_facebook_acc WHERE 1=1";
     const params: any[] = [];
 

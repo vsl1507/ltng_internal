@@ -418,23 +418,23 @@
           }
 
           // Fetch status counts
-          const statuses = ["Active", "Checkpoint", "Locked", "Disabled"];
+          const statuses = ["ACTIVE", "CHECKPOINT", "LOCKED", "DISABLED"];
           let activeCount = 0;
           let checkpointCount = 0;
           let lockedCount = 0;
 
           for (const status of statuses) {
             const res = await fetch(
-              `/api/fb-accounts?status=${status}&limit=1`
+              `/api/fb-accounts?acc_status=${status}&limit=1`
             );
             const statusData = await res.json();
 
             if (statusData.success && statusData.pagination) {
               const count = statusData.pagination.total;
 
-              if (status === "Active") activeCount = count;
-              else if (status === "Checkpoint") checkpointCount = count;
-              else if (status === "Locked" || status === "Disabled")
+              if (status === "ACTIVE") activeCount = count;
+              else if (status === "CHECKPOINT") checkpointCount = count;
+              else if (status === "LOCKED" || status === "DISABLED")
                 lockedCount += count;
             }
           }
