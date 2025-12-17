@@ -25,6 +25,9 @@ export class FBAccountService {
     let query = "SELECT * FROM ltng_media_facebook_acc WHERE 1=1";
     const params: any[] = [];
 
+    // Exclude DELETED status by default
+    query += " AND acc_status != 'DELETED'";
+
     // Search filter
     if (search) {
       query +=
@@ -96,7 +99,7 @@ export class FBAccountService {
   // Get account by ID
   async getAccountById(id: number): Promise<FBAccount | null> {
     const [rows] = await pool.query<RowDataPacket[]>(
-      "SELECT * FROM ltng_media_facebook_acc WHERE acc_id = ?",
+      "SELECT * FROM ltng_media_facebook_acc WHERE acc_id = ? AND acc_status != 'DELETED'",
       [id]
     );
     return rows.length > 0 ? (rows[0] as FBAccount) : null;
@@ -105,7 +108,7 @@ export class FBAccountService {
   // Get account by username
   async getAccountByUsername(username: string): Promise<FBAccount | null> {
     const [rows] = await pool.query<RowDataPacket[]>(
-      "SELECT * FROM ltng_media_facebook_acc WHERE acc_username = ?",
+      "SELECT * FROM ltng_media_facebook_acc WHERE acc_username = ? AND acc_status != 'DELETED'",
       [username]
     );
     return rows.length > 0 ? (rows[0] as FBAccount) : null;
@@ -231,17 +234,38 @@ export class FBAccountService {
     values.push(id);
     const query = `UPDATE ltng_media_facebook_acc SET ${fields.join(
       ", "
-    )} WHERE acc_id = ?`;
+    )} WHERE acc_id = ? AND acc_status != 'DELETED'`;
 
     const [result] = await pool.query<ResultSetHeader>(query, values);
     return result.affectedRows > 0;
   }
 
-  // Delete account
+  // Delete account (soft delete - set status to DELETED)
   async deleteAccount(id: number): Promise<boolean> {
+    const [result] = await pool.query<ResultSetHeader>(
+      "UPDATE ltng_media_facebook_acc SET acc_status = 'DELETED' WHERE acc_id = ? AND acc_status != 'DELETED'",
+      [id]
+    );
+    return result.affectedRows > 0;
+  }
+
+  // Hard delete account (permanent)
+  async hardDeleteAccount(id: number): Promise<boolean> {
     const [result] = await pool.query<ResultSetHeader>(
       "DELETE FROM ltng_media_facebook_acc WHERE acc_id = ?",
       [id]
+    );
+    return result.affectedRows > 0;
+  }
+
+  // Restore deleted account
+  async restoreAccount(
+    id: number,
+    newStatus: string = "ACTIVE"
+  ): Promise<boolean> {
+    const [result] = await pool.query<ResultSetHeader>(
+      "UPDATE ltng_media_facebook_acc SET acc_status = ? WHERE acc_id = ? AND acc_status = 'DELETED'",
+      [newStatus, id]
     );
     return result.affectedRows > 0;
   }
@@ -252,22 +276,31 @@ export class FBAccountService {
 
     const placeholders = ids.map(() => "?").join(",");
     const [result] = await pool.query<ResultSetHeader>(
-      `UPDATE ltng_media_facebook_acc SET acc_status = ? WHERE acc_id IN (${placeholders})`,
+      `UPDATE ltng_media_facebook_acc SET acc_status = ? WHERE acc_id IN (${placeholders}) AND acc_status != 'DELETED'`,
       [status, ...ids]
     );
     return result.affectedRows;
   }
 
-  // Bulk delete
-  async bulkDelete(ids: number[]): Promise<number> {
+  // Bulk delete (soft delete)
+  async bulkDelete(ids: number[], hard: boolean = false): Promise<number> {
     if (ids.length === 0) return 0;
 
     const placeholders = ids.map(() => "?").join(",");
-    const [result] = await pool.query<ResultSetHeader>(
-      `DELETE FROM ltng_media_facebook_acc WHERE acc_id IN (${placeholders})`,
-      ids
-    );
-    return result.affectedRows;
+
+    if (hard) {
+      const [result] = await pool.query<ResultSetHeader>(
+        `DELETE FROM ltng_media_facebook_acc WHERE acc_id IN (${placeholders})`,
+        ids
+      );
+      return result.affectedRows;
+    } else {
+      const [result] = await pool.query<ResultSetHeader>(
+        `UPDATE ltng_media_facebook_acc SET acc_status = 'DELETED' WHERE acc_id IN (${placeholders}) AND acc_status != 'DELETED'`,
+        ids
+      );
+      return result.affectedRows;
+    }
   }
 }
 

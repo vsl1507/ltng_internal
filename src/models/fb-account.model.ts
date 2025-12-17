@@ -25,7 +25,8 @@ export interface FBAccount {
     | "DISABLED"
     | "APPEAL_CHECKPOINT"
     | "ERROR_PASSWORD"
-    | "ERROR_2FA"; // enum, NOT NULL
+    | "ERROR_2FA"
+    | "DELETED";
 }
 
 export interface FBAccountFilters {

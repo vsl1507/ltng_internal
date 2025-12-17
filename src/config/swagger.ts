@@ -186,6 +186,212 @@ const baseOptions = {
           },
         },
       },
+      NewsSourceType: {
+        type: "object",
+        required: ["source_type_name", "source_type_slug"],
+        properties: {
+          source_type_id: {
+            type: "integer",
+            description: "Auto-generated ID",
+            example: 1,
+          },
+          source_type_name: {
+            type: "string",
+            description: "Source type name (unique)",
+            example: "Facebook Pages",
+          },
+          source_type_slug: {
+            type: "string",
+            description: "URL-friendly slug (unique)",
+            example: "facebook-pages",
+          },
+          source_type_description: {
+            type: "string",
+            description: "Description of the source type",
+            example: "News sources from Facebook pages",
+          },
+          create_at: {
+            type: "string",
+            format: "date-time",
+            description: "Creation timestamp",
+          },
+          update_at: {
+            type: "string",
+            format: "date-time",
+            description: "Last update timestamp",
+          },
+          is_deleted: {
+            type: "boolean",
+            description: "Soft delete flag",
+            example: false,
+          },
+          created_by: {
+            type: "integer",
+            description: "User ID who created this",
+            example: 1,
+          },
+          updated_by: {
+            type: "integer",
+            description: "User ID who last updated this",
+            example: 1,
+          },
+          __v: {
+            type: "integer",
+            description: "Version number",
+            example: 0,
+          },
+        },
+      },
+      NewsSourceTypeUpdate: {
+        type: "object",
+        properties: {
+          source_type_name: { type: "string", example: "Updated Name" },
+          source_type_slug: { type: "string", example: "updated-slug" },
+          source_type_description: {
+            type: "string",
+            example: "Updated description",
+          },
+          user_id: { type: "integer", example: 1 },
+        },
+      },
+      NewsSource: {
+        type: "object",
+        required: ["source_type_id", "source_name", "source_identifier"],
+        properties: {
+          source_id: { type: "integer", example: 1 },
+          source_type_id: { type: "integer", example: 1 },
+          source_name: { type: "string", example: "CNN Breaking News" },
+          source_identifier: { type: "string", example: "cnn_breaking" },
+          source_config: {
+            type: "object",
+            example: { api_key: "xxx", refresh_interval: 300 },
+          },
+          source_is_active: { type: "boolean", example: true },
+          source_is_trusted: { type: "boolean", example: true },
+          source_country: { type: "string", example: "US" },
+          create_at: { type: "string", format: "date-time" },
+          update_at: { type: "string", format: "date-time" },
+          is_deleted: { type: "boolean", example: false },
+          created_by: { type: "integer", example: 1 },
+          updated_by: { type: "integer", example: 1 },
+          __v: { type: "integer", example: 0 },
+        },
+      },
+      NewsSourceUpdate: {
+        type: "object",
+        properties: {
+          source_type_id: { type: "integer" },
+          source_name: { type: "string" },
+          source_identifier: { type: "string" },
+          source_config: { type: "object" },
+          source_is_active: { type: "boolean" },
+          source_is_trusted: { type: "boolean" },
+          source_country: { type: "string" },
+          user_id: { type: "integer" },
+        },
+      },
+      Telegram: {
+        type: "object",
+        required: ["telegram_name", "telegram_chat_id", "telegram_type"],
+        properties: {
+          telegram_id: {
+            type: "integer",
+            description: "Auto-generated ID",
+            example: 1,
+          },
+          telegram_name: {
+            type: "string",
+            description: "Telegram channel/group name",
+            example: "Tech News Channel",
+          },
+          telegram_username: {
+            type: "string",
+            description: "Telegram username (without @)",
+            example: "technewsdaily",
+          },
+          telegram_chat_id: {
+            type: "string",
+            description: "Unique Telegram chat ID",
+            example: "-1001234567890",
+          },
+          telegram_type: {
+            type: "string",
+            enum: ["CHANNEL", "GROUP", "PRIVATE"],
+            description: "Type of Telegram entity",
+            example: "CHANNEL",
+          },
+          telegram_is_active: {
+            type: "boolean",
+            description: "Whether the telegram is active",
+            example: true,
+          },
+          telegram_description: {
+            type: "string",
+            description: "Description of the telegram",
+            example: "Daily updates on technology and innovation",
+          },
+          created_at: {
+            type: "string",
+            format: "date-time",
+            description: "Creation timestamp",
+          },
+          updated_at: {
+            type: "string",
+            format: "date-time",
+            description: "Last update timestamp",
+          },
+          is_deleted: {
+            type: "boolean",
+            description: "Soft delete flag",
+            example: false,
+          },
+          created_by: {
+            type: "integer",
+            description: "User ID who created the record",
+            example: 1,
+          },
+          updated_by: {
+            type: "integer",
+            description: "User ID who last updated the record",
+            example: 1,
+          },
+          __v: {
+            type: "integer",
+            description: "Version number",
+            example: 0,
+          },
+        },
+      },
+      TelegramUpdate: {
+        type: "object",
+        properties: {
+          telegram_name: {
+            type: "string",
+            example: "Tech News Channel Updated",
+          },
+          telegram_username: {
+            type: "string",
+            example: "technewsupdated",
+          },
+          telegram_chat_id: {
+            type: "string",
+            example: "-1001234567890",
+          },
+          telegram_type: {
+            type: "string",
+            enum: ["CHANNEL", "GROUP", "PRIVATE"],
+            example: "CHANNEL",
+          },
+          telegram_is_active: {
+            type: "boolean",
+            example: false,
+          },
+          telegram_description: {
+            type: "string",
+            example: "Updated description for the channel",
+          },
+        },
+      },
       PaginatedResponse: {
         type: "object",
         properties: {

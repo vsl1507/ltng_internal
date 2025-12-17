@@ -27,7 +27,7 @@ export interface RouteConfig {
   pathParams?: PathParam[];
   requestBody?: {
     required?: boolean;
-    schema: string; // Reference to schema name
+    schema: string;
     example?: any;
   };
   responses?: {

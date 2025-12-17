@@ -260,6 +260,58 @@ export class FBAccountController {
         return;
       }
 
+      // Validate enum values if provided
+      if (
+        accountData.acc_gender &&
+        !["MALE", "FEMALE"].includes(accountData.acc_gender)
+      ) {
+        ResponseHandler.badRequest(res, "Gender must be MALE or FEMALE");
+        return;
+      }
+      if (
+        accountData.acc_friend_suggestion &&
+        !["YES", "NO"].includes(accountData.acc_friend_suggestion)
+      ) {
+        ResponseHandler.badRequest(res, "Friend suggestion must be YES or NO");
+        return;
+      }
+      if (
+        accountData.acc_set_intro &&
+        !["YES", "NO"].includes(accountData.acc_set_intro)
+      ) {
+        ResponseHandler.badRequest(res, "Set intro must be YES or NO");
+        return;
+      }
+      if (
+        accountData.acc_set_pic &&
+        !["YES", "NO"].includes(accountData.acc_set_pic)
+      ) {
+        ResponseHandler.badRequest(res, "Set pic must be YES or NO");
+        return;
+      }
+      if (
+        accountData.acc_follower &&
+        !["YES", "NO"].includes(accountData.acc_follower)
+      ) {
+        ResponseHandler.badRequest(res, "Follower must be YES or NO");
+        return;
+      }
+      if (
+        accountData.acc_status &&
+        ![
+          "ACTIVE",
+          "CHECKPOINT",
+          "LOCKED",
+          "DISABLED",
+          "APPEAL_CHECKPOINT",
+          "ERROR_PASSWORD",
+          "ERROR_2FA",
+        ].includes(accountData.acc_status)
+      ) {
+        ResponseHandler.badRequest(res, "Invalid status value");
+        return;
+      }
+
       const updated = await fbAccountService.updateAccount(id, accountData);
 
       if (!updated) {
@@ -283,13 +335,19 @@ export class FBAccountController {
   async deleteAccount(req: Request, res: Response): Promise<void> {
     try {
       const id = parseInt(req.params.id);
+      const hard = req.query.hard === "true";
 
       if (isNaN(id)) {
         ResponseHandler.badRequest(res, "Invalid account ID");
         return;
       }
 
-      const deleted = await fbAccountService.deleteAccount(id);
+      let deleted: boolean;
+      if (hard) {
+        deleted = await fbAccountService.hardDeleteAccount(id);
+      } else {
+        deleted = await fbAccountService.deleteAccount(id);
+      }
 
       if (!deleted) {
         ResponseHandler.notFound(res, "Account not found");
@@ -300,6 +358,48 @@ export class FBAccountController {
     } catch (error) {
       console.error("Error deleting account:", error);
       ResponseHandler.internalError(res, "Failed to delete account");
+    }
+  }
+
+  // Restore deleted account
+  async restoreAccount(req: Request, res: Response): Promise<void> {
+    try {
+      const id = parseInt(req.params.id);
+      const { acc_status = "ACTIVE" } = req.body;
+
+      if (isNaN(id)) {
+        ResponseHandler.badRequest(res, "Invalid account ID");
+        return;
+      }
+
+      // Validate status if provided
+      if (
+        acc_status &&
+        ![
+          "ACTIVE",
+          "CHECKPOINT",
+          "LOCKED",
+          "DISABLED",
+          "APPEAL_CHECKPOINT",
+          "ERROR_PASSWORD",
+          "ERROR_2FA",
+        ].includes(acc_status)
+      ) {
+        ResponseHandler.badRequest(res, "Invalid status value");
+        return;
+      }
+
+      const restored = await fbAccountService.restoreAccount(id, acc_status);
+
+      if (!restored) {
+        ResponseHandler.notFound(res, "Account not found or not deleted");
+        return;
+      }
+
+      ResponseHandler.success(res, null, "Account restored successfully");
+    } catch (error) {
+      console.error("Error restoring account:", error);
+      ResponseHandler.internalError(res, "Failed to restore account");
     }
   }
 
@@ -320,6 +420,25 @@ export class FBAccountController {
         validationErrors.push({
           field: "acc_status",
           message: "Status is required",
+        });
+      }
+
+      // Validate status value
+      if (
+        acc_status &&
+        ![
+          "ACTIVE",
+          "CHECKPOINT",
+          "LOCKED",
+          "DISABLED",
+          "APPEAL_CHECKPOINT",
+          "ERROR_PASSWORD",
+          "ERROR_2FA",
+        ].includes(acc_status)
+      ) {
+        validationErrors.push({
+          field: "acc_status",
+          message: "Invalid status value",
         });
       }
 
@@ -347,7 +466,7 @@ export class FBAccountController {
   // Bulk delete
   async bulkDelete(req: Request, res: Response): Promise<void> {
     try {
-      const { ids } = req.body;
+      const { ids, hard = false } = req.body;
 
       // Validation
       if (!ids || !Array.isArray(ids) || ids.length === 0) {
@@ -357,7 +476,7 @@ export class FBAccountController {
         return;
       }
 
-      const affectedRows = await fbAccountService.bulkDelete(ids);
+      const affectedRows = await fbAccountService.bulkDelete(ids, hard);
 
       ResponseHandler.success(
         res,

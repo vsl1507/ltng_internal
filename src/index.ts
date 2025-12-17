@@ -8,6 +8,9 @@ import swaggerUi from "swagger-ui-express";
 import { testConnection } from "./config/mysql.config";
 import fbAccountRoutes from "./routes/fb-account.route";
 import systemRoutes from "./routes/system.route";
+import sourceTypeRoutes from "./routes/source-type.route";
+import sourceRoutes from "./routes/source.route";
+import telegramRoutes from "./routes/telegram.route";
 import { generateSwaggerSpec } from "./config/swagger";
 
 const app = express();
@@ -33,14 +36,35 @@ const swaggerPaths = {
 };
 
 // Get swagger paths from ApiRouter
-const fbAccountSwaggerPaths = fbAccountRoutes.getSwaggerPaths();
 const systemSwaggerPaths = systemRoutes.getSwaggerPaths();
+const fbAccountSwaggerPaths = fbAccountRoutes.getSwaggerPaths();
+const sourceTypeSwaggerPaths = sourceTypeRoutes.getSwaggerPaths();
+const sourceSwaggerPaths = sourceRoutes.getSwaggerPaths();
+const telegramSwaggerPaths = telegramRoutes.getSwaggerPaths();
 
 Object.assign(
   swaggerPaths,
   Object.fromEntries(
     Object.entries(fbAccountSwaggerPaths).map(([path, methods]) => [
-      `/api/fb-accounts${path === "/" ? "" : path}`,
+      `/api/v1/fb-accounts${path === "/" ? "" : path}`,
+      methods,
+    ])
+  ),
+  Object.fromEntries(
+    Object.entries(sourceTypeSwaggerPaths).map(([path, methods]) => [
+      `/api/v1/source-types${path === "/" ? "" : path}`,
+      methods,
+    ])
+  ),
+  Object.fromEntries(
+    Object.entries(sourceSwaggerPaths).map(([path, methods]) => [
+      `/api/v1/sources${path === "/" ? "" : path}`,
+      methods,
+    ])
+  ),
+  Object.fromEntries(
+    Object.entries(telegramSwaggerPaths).map(([path, methods]) => [
+      `/api/v1/telegrams${path === "/" ? "" : path}`,
       methods,
     ])
   ),
@@ -81,8 +105,11 @@ app.get("/", (req: Request, res: Response) => {
 });
 
 // API Routes
-app.use("/api/fb-accounts", fbAccountRoutes.getRouter());
 app.use("/system", systemRoutes.getRouter());
+app.use("/api/v1/fb-accounts", fbAccountRoutes.getRouter());
+app.use("/api/v1/source-types", sourceTypeRoutes.getRouter());
+app.use("/api/v1/sources", sourceRoutes.getRouter());
+app.use("/api/v1/telegrams", telegramRoutes.getRouter());
 
 // Error handling middleware
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
@@ -120,7 +147,6 @@ const startServer = async () => {
     console.log(
       `📊 API Endpoints on local: http://${HOST}:${PORT}/api/fb-accounts`
     );
-    console.log(`✨ Total Routes: ${fbAccountRoutes.getRoutes().length}`);
   });
 };
 
