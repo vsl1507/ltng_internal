@@ -5,22 +5,35 @@ import path from "path";
 // Load environment variables
 dotenv.config();
 import swaggerUi from "swagger-ui-express";
-import { testConnection } from "./config/mysql.config";
+import pool, { testConnection } from "./config/mysql.config";
 import fbAccountRoutes from "./routes/fb-account.route";
 import systemRoutes from "./routes/system.route";
 import sourceTypeRoutes from "./routes/source-type.route";
 import sourceRoutes from "./routes/source.route";
 import telegramRoutes from "./routes/telegram.route";
+import postRoutes from "./routes/telegram-post.route";
 import { generateSwaggerSpec } from "./config/swagger";
+import { boostrapTelegram } from "./routes/bot.route";
+import { MonitorService } from "./services/monitor.service";
+import { ensureMediaDirExists, MEDIA_DIR } from "./utils/media-path";
+import { ScrapeService } from "./services/telegram-scrape.service";
+import { initTelegram } from "./config/telegram.config";
+import { autoScrapeService } from "./services/telegram-auto-scrape.service";
 
 const app = express();
 const PORT = process.env.PORT || 3500;
 const HOST = process.env.DB_HOST || "localhost";
+const monitorService = new MonitorService();
+const scrapeService = new ScrapeService();
 
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+
+// Save media after scarpe
+ensureMediaDirExists();
+app.use("/media", express.static(MEDIA_DIR));
 
 // Set the view engine to EJS with folder for views and dist
 app.set("view engine", "ejs");
@@ -41,6 +54,7 @@ const fbAccountSwaggerPaths = fbAccountRoutes.getSwaggerPaths();
 const sourceTypeSwaggerPaths = sourceTypeRoutes.getSwaggerPaths();
 const sourceSwaggerPaths = sourceRoutes.getSwaggerPaths();
 const telegramSwaggerPaths = telegramRoutes.getSwaggerPaths();
+const postSwaggerPaths = postRoutes.getSwaggerPaths();
 
 Object.assign(
   swaggerPaths,
@@ -65,6 +79,12 @@ Object.assign(
   Object.fromEntries(
     Object.entries(telegramSwaggerPaths).map(([path, methods]) => [
       `/api/v1/telegrams${path === "/" ? "" : path}`,
+      methods,
+    ])
+  ),
+  Object.fromEntries(
+    Object.entries(postSwaggerPaths).map(([path, methods]) => [
+      `/api/v1/posts${path === "/" ? "" : path}`,
       methods,
     ])
   ),
@@ -104,12 +124,16 @@ app.get("/", (req: Request, res: Response) => {
   });
 });
 
+// Telegram Routes
+boostrapTelegram();
+
 // API Routes
 app.use("/system", systemRoutes.getRouter());
 app.use("/api/v1/fb-accounts", fbAccountRoutes.getRouter());
 app.use("/api/v1/source-types", sourceTypeRoutes.getRouter());
 app.use("/api/v1/sources", sourceRoutes.getRouter());
 app.use("/api/v1/telegrams", telegramRoutes.getRouter());
+app.use("/api/v1/posts", postRoutes.getRouter());
 
 // Error handling middleware
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
@@ -131,6 +155,10 @@ app.use((req: Request, res: Response) => {
 // Start server with database connection test
 const startServer = async () => {
   await testConnection();
+  await initTelegram();
+  // autoScrapeService.startAutoScrape();
+  monitorService.start();
+  scrapeService.scrapeFromSource();
 
   app.listen(PORT, () => {
     console.log(`🚀 Server is running on local:  http://localhost:${PORT}`);
@@ -147,6 +175,14 @@ const startServer = async () => {
     console.log(
       `📊 API Endpoints on local: http://${HOST}:${PORT}/api/fb-accounts`
     );
+  });
+
+  // Graceful shutdown
+  process.on("SIGINT", () => {
+    console.log("\n🛑 Shutting down gracefully...");
+    monitorService.stop();
+    pool.end();
+    process.exit(0);
   });
 };
 

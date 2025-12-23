@@ -392,6 +392,48 @@ const baseOptions = {
           },
         },
       },
+      NewsPost: {
+        type: "object",
+        required: ["radar_ai_id", "story_id", "post_version", "post_content"],
+        properties: {
+          post_id: { type: "integer", example: 1 },
+          radar_ai_id: { type: "integer", example: 1 },
+          story_id: { type: "integer", example: 100 },
+          post_version: { type: "integer", example: 1 },
+          is_major_update: { type: "boolean", example: false },
+          post_content: { type: "string", example: "Breaking news content..." },
+          post_media: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                type: { type: "string", example: "image" },
+                url: {
+                  type: "string",
+                  example: "https://example.com/image.jpg",
+                },
+                caption: { type: "string", example: "Photo caption" },
+              },
+            },
+          },
+          created_at: { type: "string", format: "date-time" },
+          updated_at: { type: "string", format: "date-time" },
+          is_deleted: { type: "boolean", example: false },
+          created_by: { type: "integer", example: 1 },
+          updated_by: { type: "integer", example: 1 },
+          __v: { type: "integer", example: 0 },
+        },
+      },
+      NewsPostUpdate: {
+        type: "object",
+        properties: {
+          story_id: { type: "integer" },
+          is_major_update: { type: "boolean" },
+          post_content: { type: "string" },
+          post_media: { type: "array", items: { type: "object" } },
+          user_id: { type: "integer" },
+        },
+      },
       PaginatedResponse: {
         type: "object",
         properties: {
