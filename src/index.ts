@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import path from "path";
+import * as cron from "node-cron";
 // Load environment variables
 dotenv.config();
 import swaggerUi from "swagger-ui-express";
@@ -26,6 +27,12 @@ const HOST = process.env.DB_HOST || "localhost";
 const monitorService = new MonitorService();
 const scrapeService = new ScrapeService();
 const websiteScrapeService = new WebsiteScrapeService();
+
+// Scrape scheduling configuration
+const TELEGRAM_SCRAPE_SCHEDULE =
+  process.env.TELEGRAM_SCRAPE_SCHEDULE || "*/30 * * * *"; // Every 30 minutes
+const WEBSITE_SCRAPE_SCHEDULE =
+  process.env.WEBSITE_SCRAPE_SCHEDULE || "0 */2 * * *"; // Every 2 hours
 
 // Middleware
 app.use(cors());
@@ -153,13 +160,85 @@ app.use((req: Request, res: Response) => {
   });
 });
 
+// Scrape scheduling functions
+let telegramScrapeJob: cron.ScheduledTask | null = null;
+let websiteScrapeJob: cron.ScheduledTask | null = null;
+
+const startScrapeSchedules = () => {
+  // Schedule Telegram scraping
+  console.log(`📅 Scheduling Telegram scrape: ${TELEGRAM_SCRAPE_SCHEDULE}`);
+  telegramScrapeJob = cron.schedule(TELEGRAM_SCRAPE_SCHEDULE, async () => {
+    try {
+      console.log(
+        `🔄 [${new Date().toISOString()}] Running scheduled Telegram scrape...`
+      );
+      await scrapeService.scrapeFromSource();
+      console.log(`✅ [${new Date().toISOString()}] Telegram scrape completed`);
+    } catch (error) {
+      console.error(
+        `❌ [${new Date().toISOString()}] Telegram scrape failed:`,
+        error
+      );
+    }
+  });
+
+  // Schedule Website scraping
+  console.log(`📅 Scheduling Website scrape: ${WEBSITE_SCRAPE_SCHEDULE}`);
+  websiteScrapeJob = cron.schedule(WEBSITE_SCRAPE_SCHEDULE, async () => {
+    try {
+      console.log(
+        `🔄 [${new Date().toISOString()}] Running scheduled Website scrape...`
+      );
+      await websiteScrapeService.scrapeFromSource();
+      console.log(`✅ [${new Date().toISOString()}] Website scrape completed`);
+    } catch (error) {
+      console.error(
+        `❌ [${new Date().toISOString()}] Website scrape failed:`,
+        error
+      );
+    }
+  });
+
+  console.log("✅ Scrape schedules started successfully");
+};
+
+const stopScrapeSchedules = () => {
+  if (telegramScrapeJob) {
+    telegramScrapeJob.stop();
+    console.log("🛑 Telegram scrape schedule stopped");
+  }
+  if (websiteScrapeJob) {
+    websiteScrapeJob.stop();
+    console.log("🛑 Website scrape schedule stopped");
+  }
+};
+
 // Start server with database connection test
 const startServer = async () => {
   await testConnection();
   await initTelegram();
+
+  // Start monitoring service
   monitorService.start();
-  scrapeService.scrapeFromSource();
-  // websiteScrapeService.scrapeFromSource();
+
+  // Run initial scrape on startup
+  console.log("🚀 Running initial scrapes on startup...");
+  try {
+    await scrapeService.scrapeFromSource();
+    console.log("✅ Initial Telegram scrape completed");
+  } catch (error) {
+    console.error("❌ Initial Telegram scrape failed:", error);
+  }
+
+  try {
+    await websiteScrapeService.scrapeFromSource();
+    console.log("✅ Initial Website scrape completed");
+  } catch (error) {
+    console.error("❌ Initial Website scrape failed:", error);
+  }
+
+  // Start scheduled scraping
+  startScrapeSchedules();
 
   app.listen(PORT, () => {
     console.log(`🚀 Server is running on local:  http://localhost:${PORT}`);
@@ -182,6 +261,7 @@ const startServer = async () => {
   process.on("SIGINT", () => {
     console.log("\n🛑 Shutting down gracefully...");
     monitorService.stop();
+    stopScrapeSchedules();
     pool.end();
     process.exit(0);
   });
