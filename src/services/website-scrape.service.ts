@@ -15,6 +15,7 @@ import {
   isDuplicate,
 } from "../utils/scrape.utils";
 import { radarAIService } from "./radar-ai.service";
+import { mediaService } from "./media.service";
 
 // ========== INTERFACES ==========
 interface ScrapedArticle {
@@ -126,7 +127,7 @@ export class WebsiteScrapeService {
 
     // Limit articles based on config
     // const fetchLimit = config.common.fetch_limit || 10;
-    const fetchLimit = 3;
+    const fetchLimit = 6;
     articles = articles.slice(0, fetchLimit);
 
     // Process articles
@@ -210,6 +211,18 @@ export class WebsiteScrapeService {
 
         if (articleId) {
           stats.savedCount++;
+
+          // Handle media
+          const mediaDownloaded = await this.handleMedia(
+            article,
+            articleId,
+            config.website.base_url,
+            config
+          );
+
+          if (mediaDownloaded) {
+            stats.mediaCount++;
+          }
 
           // Process with AI if enabled
           if (config.common.ai.enabled) {
@@ -374,6 +387,8 @@ export class WebsiteScrapeService {
       const $ = cheerio.load(response.data);
       const articleLinks: string[] = [];
 
+      console.log("articleLinks: ", articleLinks);
+
       // Extract article URLs from listing
       $(config.website.listing_selector!).each((i, element) => {
         let href = $(element).attr("href");
@@ -393,7 +408,7 @@ export class WebsiteScrapeService {
       console.log(`   Found ${articleLinks.length} article links`);
 
       // Scrape each article
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 6; i++) {
         try {
           const article = await this.scrapeArticleContent(
             articleLinks[i],
@@ -571,5 +586,116 @@ export class WebsiteScrapeService {
     console.log(`   ⭐️  Skipped: ${stats.skippedCount}`);
     console.log(`   📄 Duplicates: ${stats.duplicateCount}`);
     console.log(`   🖼️  Media: ${stats.mediaCount}`);
+  }
+
+  private async handleMedia(
+    article: any,
+    articleId: number,
+    sourceName: string,
+    config: any
+  ): Promise<boolean> {
+    if (!config.common.media.include) {
+      return false;
+    }
+
+    // Check if article has images
+    if (!article.images || article.images.length === 0) {
+      console.log(`   ℹ️  No media found in article`);
+      return false;
+    }
+
+    console.log(`   🖼️  Found ${article.images.length} media items`);
+
+    // Limit media per item
+    const maxMedia = config.common.media.max_per_item || 3;
+    const mediaToProcess = article.images.slice(0, maxMedia);
+
+    let processedCount = 0;
+
+    for (const mediaUrl of mediaToProcess) {
+      try {
+        // Check if media type is allowed
+        const mediaType = this.getMediaTypeFromUrl(mediaUrl);
+
+        if (!this.isMediaTypeAllowed(mediaType, config)) {
+          console.log(`   ⏭️  Skipping ${mediaType}: not in allowed types`);
+          continue;
+        }
+
+        // Download or save media using unified service
+        if (config.common.media.download) {
+          const result = await mediaService.downloadFromUrl(mediaUrl, {
+            articleId,
+            sourceName,
+            sourceType: "website",
+            timeout: 30000,
+            maxRetries: 3,
+          });
+
+          if (result.success) {
+            console.log(`   ✅ Downloaded ${mediaType}: ${result.mediaPath}`);
+            processedCount++;
+          } else {
+            console.log(`   ⚠️  Download failed: ${result.error}`);
+            // Fallback: save URL only
+            await mediaService.saveUrlReference(
+              mediaUrl,
+              {
+                articleId,
+                sourceName,
+                sourceType: "website",
+              },
+              mediaType
+            );
+            processedCount++;
+          }
+        } else {
+          // Just save media URL without downloading
+          await mediaService.saveUrlReference(
+            mediaUrl,
+            {
+              articleId,
+              sourceName,
+              sourceType: "website",
+            },
+            mediaType
+          );
+          console.log(`   💾 Saved ${mediaType} URL (no download)`);
+          processedCount++;
+        }
+      } catch (error: any) {
+        console.error(`   ❌ Media processing failed: ${error.message}`);
+        continue;
+      }
+    }
+
+    if (processedCount > 0) {
+      console.log(`   ✅ Processed ${processedCount} media items`);
+      return true;
+    }
+
+    return false;
+  }
+
+  private getMediaTypeFromUrl(url: string): string {
+    const urlLower = url.toLowerCase();
+
+    if (/\.(jpg|jpeg|png|gif|webp|svg)(\?|$)/i.test(urlLower)) {
+      return "image";
+    }
+    if (/\.(mp4|webm|mov|avi|mkv)(\?|$)/i.test(urlLower)) {
+      return "video";
+    }
+    if (/\.(mp3|wav|ogg|aac)(\?|$)/i.test(urlLower)) {
+      return "audio";
+    }
+
+    return "image"; // Default for news sites
+  }
+
+  private isMediaTypeAllowed(mediaType: string, config: any): boolean {
+    const allowedTypes = config.common.media.allowed_types;
+    if (allowedTypes.length === 0) return true;
+    return allowedTypes.includes(mediaType as any);
   }
 }

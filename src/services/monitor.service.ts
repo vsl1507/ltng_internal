@@ -35,7 +35,6 @@ export class MonitorService {
   private async checkAndPostNewData(): Promise<void> {
     try {
       const unpostedPosts = await this.postDeliveryService.getUnpostedPosts();
-      console.log("unpostedPosts", unpostedPosts);
 
       if (unpostedPosts.length > 0) {
         console.log(`📝 Found ${unpostedPosts.length} new post(s)`);

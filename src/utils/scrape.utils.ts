@@ -287,6 +287,7 @@ export async function findOrCreateStoryNumber(
   excludeSourceId?: number
 ): Promise<StoryNumberResult> {
   const existingArticles = await fetchRecentArticles(excludeSourceId);
+  console.log("existingArticles: ", existingArticles);
 
   if (existingArticles.length === 0) {
     const newStoryNumber = await generateNewStoryNumber();

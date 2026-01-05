@@ -1,407 +1,677 @@
 // services/media.service.ts
-import pool from "../config/mysql.config";
-import { getTelegramClient } from "../config/telegram.config";
+// Universal Media Service - Works with any source (Telegram, Website, RSS, etc.)
+
+import axios from "axios";
 import * as fs from "fs";
 import * as path from "path";
+import * as crypto from "crypto";
+import pool from "../config/mysql.config";
 
-export enum MediaType {
-  IMAGE = "IMAGE",
-  VIDEO = "VIDEO",
-  AUDIO = "AUDIO",
-  EMBED = "EMBED",
-  OTHER = "OTHER",
+// ========== INTERFACES ==========
+
+/**
+ * Generic media download options
+ */
+export interface MediaDownloadOptions {
+  articleId: number;
+  sourceName: string;
+  sourceType: "telegram" | "website" | "rss" | "api" | "other";
+  maxRetries?: number;
+  timeout?: number;
 }
 
+/**
+ * Media download result
+ */
+export interface MediaDownloadResult {
+  success: boolean;
+  mediaId?: number;
+  mediaPath?: string;
+  mediaType?: string;
+  mediaSize?: number;
+  error?: string;
+}
+
+/**
+ * Media info structure
+ */
 export interface MediaInfo {
   mediaId?: number;
-  mediaUrl: string;
-  mediaType: MediaType;
-  mediaCaption?: string;
-  mediaAltText?: string;
-  mediaCredit?: string;
-  mediaWidth?: number;
-  mediaHeight?: number;
-  mediaDuration?: number;
-  mediaMimeType?: string;
-  createdBy?: number;
+  radarId: number;
+  mediaType: "image" | "video" | "audio" | "document";
+  mediaUrl?: string;
+  mediaPath?: string;
+  mimeType?: string;
+  fileSize?: number;
+  width?: number;
+  height?: number;
+  duration?: number;
+  thumbnailPath?: string;
+  createdAt?: Date;
 }
 
+/**
+ * Media source adapter interface
+ * Implement this for each source type
+ */
+export interface IMediaSourceAdapter {
+  downloadMedia(source: any, options: MediaDownloadOptions): Promise<Buffer>;
+  getMediaType(source: any): string;
+  getMimeType(source: any): string;
+}
+
+// ========== MAIN SERVICE ==========
+
 export class MediaService {
-  private readonly MEDIA_DIR: string;
-  private readonly BASE_URL: string;
+  private mediaDir: string;
+  private baseUrl: string;
 
   constructor() {
-    this.MEDIA_DIR = path.join(__dirname, "../../media");
-    this.BASE_URL = process.env.MEDIA_BASE_URL || "http://localhost:3000/media";
-
-    // Ensure media directory exists
-    if (!fs.existsSync(this.MEDIA_DIR)) {
-      fs.mkdirSync(this.MEDIA_DIR, { recursive: true });
-    }
+    this.mediaDir = process.env.MEDIA_STORAGE_PATH || "./storage/media";
+    this.baseUrl = process.env.MEDIA_BASE_URL || "http://localhost:3000/media";
+    this.ensureMediaDirectory();
   }
 
+  // ==================== PUBLIC API ====================
+
   /**
-   * Download media from Telegram message and save to database
+   * Universal media download from URL
+   * Works for: Website images, API endpoints, external URLs
    */
-  async downloadMessageMedia(
-    message: any,
-    newsId: number,
-    channelUsername: string,
-    createdBy?: number
-  ): Promise<number | null> {
-    if (!message.media) return null;
-
+  async downloadFromUrl(
+    url: string,
+    options: MediaDownloadOptions
+  ): Promise<MediaDownloadResult> {
     try {
-      const media = message.media;
+      console.log(`📥 Downloading: ${url.substring(0, 80)}...`);
 
-      console.log(message);
-
-      // Skip web page previews
-      if (media.className === "MessageMediaWebPage") {
-        console.log("Skipping web page preview");
-        return null;
+      if (!this.isValidUrl(url)) {
+        return this.createErrorResult("Invalid URL");
       }
 
-      const mediaInfo = this.extractMediaInfo(message);
-      if (!mediaInfo) {
-        console.log("Unsupported media type:", media.className);
-        return null;
-      }
+      // Download media
+      const buffer = await this.fetchFromUrl(url, options.timeout);
+      const mimeType = await this.detectMimeType(buffer, url);
+      const mediaType = this.getMediaTypeFromMime(mimeType);
 
-      // Create channel-specific directory
-      const channelDir = path.join(
-        this.MEDIA_DIR,
-        channelUsername.replace("@", "")
-      );
-      if (!fs.existsSync(channelDir)) {
-        fs.mkdirSync(channelDir, { recursive: true });
-      }
-
-      // Generate filename
-      const fileName = this.generateFileName(message, mediaInfo);
-      const filePath = path.join(channelDir, fileName);
-      const relativeFilePath = path.join(
-        channelUsername.replace("@", ""),
-        fileName
+      // Save to disk
+      const saveResult = await this.saveMediaToDisk(
+        buffer,
+        mediaType,
+        mimeType,
+        options
       );
 
-      // Download the media
-      console.log(`Downloading ${mediaInfo.mediaType}: ${fileName}...`);
-
-      const client = getTelegramClient();
-      const writeStream = fs.createWriteStream(filePath);
-
-      for await (const chunk of client.iterDownload({
-        file: message.media,
-        requestSize: 512 * 1024, // 512KB chunks
-      })) {
-        writeStream.write(Buffer.from(chunk));
-      }
-
-      writeStream.end();
-
-      await new Promise<void>((resolve, reject) => {
-        writeStream.on("finish", () => resolve());
-        writeStream.on("error", reject);
+      // Save metadata to database
+      const mediaId = await this.saveMediaMetadata({
+        radarId: options.articleId,
+        mediaType: mediaType as any,
+        mediaUrl: url,
+        mediaPath: saveResult.relativePath,
+        mimeType,
+        fileSize: saveResult.fileSize,
       });
 
-      console.log(`✓ Downloaded: ${fileName}`);
-
-      // Save to database with full URL
-      const mediaUrl = `${this.BASE_URL}/${relativeFilePath.replace(
-        /\\/g,
-        "/"
-      )}`;
-      mediaInfo.mediaUrl = mediaUrl;
-      mediaInfo.createdBy = createdBy;
-
-      const mediaId = await this.saveMedia(mediaInfo);
-
-      // Link media to news
-      await this.linkMediaToNews(mediaId, newsId);
-
-      return mediaId;
-    } catch (error) {
-      console.error("Error downloading media:", error);
-      return null;
-    }
-  }
-
-  /**
-   * Save media info without downloading (e.g., for external URLs)
-   */
-  async saveMediaInfo(
-    message: any,
-    newsId: number,
-    createdBy?: number
-  ): Promise<number | null> {
-    if (!message.media) return null;
-
-    try {
-      const mediaInfo = this.extractMediaInfo(message);
-      if (!mediaInfo) return null;
-
-      // For media we don't download, create a placeholder URL or Telegram file ID
-      mediaInfo.mediaUrl = `telegram://media/${message.id}`;
-      mediaInfo.createdBy = createdBy;
-
-      const mediaId = await this.saveMedia(mediaInfo);
-      await this.linkMediaToNews(mediaId, newsId);
-
-      return mediaId;
-    } catch (error) {
-      console.error("Error saving media info:", error);
-      return null;
-    }
-  }
-
-  /**
-   * Save media to ltng_news_media table
-   */
-  async saveMedia(mediaInfo: MediaInfo): Promise<number> {
-    const [result] = (await pool.query(
-      `INSERT INTO ltng_news_media (
-        media_url, 
-        media_type, 
-        media_caption, 
-        media_alt_text,
-        media_credit,
-        media_width, 
-        media_height, 
-        media_duration,
-        media_mime_type,
-        created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        mediaInfo.mediaUrl,
-        mediaInfo.mediaType,
-        mediaInfo.mediaCaption || null,
-        mediaInfo.mediaAltText || null,
-        mediaInfo.mediaCredit || null,
-        mediaInfo.mediaWidth || null,
-        mediaInfo.mediaHeight || null,
-        mediaInfo.mediaDuration || null,
-        mediaInfo.mediaMimeType || null,
-        mediaInfo.createdBy || null,
-      ]
-    )) as any;
-
-    return result.insertId;
-  }
-
-  /**
-   * Link media to news article (assuming you have a junction table)
-   */
-  async linkMediaToNews(mediaId: number, newsId: number): Promise<void> {
-    // If you have a junction table like ltng_news_media_junction
-    try {
-      await pool.query(
-        `INSERT INTO ltng_news_media_junction (news_id, media_id) 
-         VALUES (?, ?)
-         ON DUPLICATE KEY UPDATE news_id = news_id`,
-        [newsId, mediaId]
+      console.log(
+        `✅ Downloaded: ${saveResult.filename} (${this.formatBytes(
+          saveResult.fileSize
+        )})`
       );
-    } catch (error) {
-      // If junction table doesn't exist, you might store media_id in news table
-      // or handle differently
-      console.log("Note: No junction table found, skipping link");
+
+      return {
+        success: true,
+        mediaId,
+        mediaPath: saveResult.relativePath,
+        mediaType,
+        mediaSize: saveResult.fileSize,
+      };
+    } catch (error: any) {
+      console.error(`❌ Download failed: ${error.message}`);
+      return this.createErrorResult(error.message);
     }
   }
 
   /**
-   * Get all media for a news article
+   * Download from Telegram message
+   * Works for: Telegram photos, videos, documents
    */
-  async getMediaByNewsId(newsId: number): Promise<MediaInfo[]> {
+  async downloadFromTelegram(
+    message: any,
+    options: MediaDownloadOptions
+  ): Promise<MediaDownloadResult> {
     try {
-      const [rows] = (await pool.query(
-        `SELECT m.* 
-         FROM ltng_news_media m
-         JOIN ltng_news_media_junction j ON m.media_id = j.media_id
-         WHERE j.news_id = ? AND m.is_deleted = FALSE
-         ORDER BY m.created_at ASC`,
-        [newsId]
-      )) as any;
+      if (!message.media) {
+        return this.createErrorResult("No media in message");
+      }
 
-      return rows.map((row: any) => this.mapRowToMediaInfo(row));
-    } catch (error) {
-      console.error("Error fetching media:", error);
-      return [];
+      console.log(`📥 Downloading Telegram media...`);
+
+      // Get Telegram client
+      const { getTelegramClient } = require("../config/telegram.config");
+      const client = getTelegramClient();
+
+      // Extract media info
+      const mediaType = this.getTelegramMediaType(message.media);
+      const mimeType = this.getTelegramMimeType(message.media);
+
+      // Generate filename
+      const extension = this.getExtensionFromMime(mimeType) || "bin";
+      const filename = this.generateFilename(
+        options.articleId,
+        options.sourceName,
+        extension
+      );
+
+      // Determine storage path
+      const subdir = this.getSubdirectory(mediaType);
+      const relativePath = path.join(subdir, filename);
+      const fullPath = path.join(this.mediaDir, relativePath);
+
+      // Download using Telegram API
+      await client.downloadMedia(message, {
+        outputFile: fullPath,
+      });
+
+      // Get file size
+      const stats = fs.statSync(fullPath);
+      const fileSize = stats.size;
+
+      // Save metadata
+      const mediaId = await this.saveMediaMetadata({
+        radarId: options.articleId,
+        mediaType: mediaType as any,
+        mediaUrl: null,
+        mediaPath: relativePath,
+        mimeType,
+        fileSize,
+      });
+
+      console.log(`✅ Downloaded: ${filename} (${this.formatBytes(fileSize)})`);
+
+      return {
+        success: true,
+        mediaId,
+        mediaPath: relativePath,
+        mediaType,
+        mediaSize: fileSize,
+      };
+    } catch (error: any) {
+      console.error(`❌ Telegram download failed: ${error.message}`);
+      return this.createErrorResult(error.message);
     }
+  }
+
+  /**
+   * Download from custom adapter
+   * Works for: Any custom source with an adapter
+   */
+  async downloadWithAdapter(
+    source: any,
+    adapter: IMediaSourceAdapter,
+    options: MediaDownloadOptions
+  ): Promise<MediaDownloadResult> {
+    try {
+      console.log(`📥 Downloading with custom adapter...`);
+
+      // Use adapter to download
+      const buffer = await adapter.downloadMedia(source, options);
+      const mediaType = adapter.getMediaType(source);
+      const mimeType = adapter.getMimeType(source);
+
+      // Save to disk
+      const saveResult = await this.saveMediaToDisk(
+        buffer,
+        mediaType,
+        mimeType,
+        options
+      );
+
+      // Save metadata
+      const mediaId = await this.saveMediaMetadata({
+        radarId: options.articleId,
+        mediaType: mediaType as any,
+        mediaUrl: null,
+        mediaPath: saveResult.relativePath,
+        mimeType,
+        fileSize: saveResult.fileSize,
+      });
+
+      console.log(
+        `✅ Downloaded: ${saveResult.filename} (${this.formatBytes(
+          saveResult.fileSize
+        )})`
+      );
+
+      return {
+        success: true,
+        mediaId,
+        mediaPath: saveResult.relativePath,
+        mediaType,
+        mediaSize: saveResult.fileSize,
+      };
+    } catch (error: any) {
+      console.error(`❌ Adapter download failed: ${error.message}`);
+      return this.createErrorResult(error.message);
+    }
+  }
+
+  /**
+   * Save media URL reference without downloading
+   * Works for: Any source where you just want to store the URL
+   */
+  async saveUrlReference(
+    url: string,
+    options: MediaDownloadOptions,
+    mediaType: string = "image"
+  ): Promise<number> {
+    try {
+      const mediaId = await this.saveMediaMetadata({
+        radarId: options.articleId,
+        mediaType: mediaType as any,
+        mediaUrl: url,
+        mediaPath: null,
+        mimeType: null,
+        fileSize: null,
+      });
+
+      console.log(`💾 Saved URL reference: ${url.substring(0, 80)}...`);
+      return mediaId;
+    } catch (error: any) {
+      console.error(`❌ Failed to save URL reference: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all media for an article
+   */
+  async getMediaByArticle(articleId: number): Promise<MediaInfo[]> {
+    const [rows]: any = await pool.query(
+      `SELECT * FROM ltng_news_radar_media WHERE radar_id = ? ORDER BY created_at ASC`,
+      [articleId]
+    );
+
+    return rows.map((row: any) => this.mapRowToMediaInfo(row));
   }
 
   /**
    * Get media by ID
    */
   async getMediaById(mediaId: number): Promise<MediaInfo | null> {
-    const [rows] = (await pool.query(
-      `SELECT * FROM ltng_news_media WHERE media_id = ? AND is_deleted = FALSE`,
+    const [rows]: any = await pool.query(
+      `SELECT * FROM ltng_news_radar_media WHERE media_id = ?`,
       [mediaId]
-    )) as any;
+    );
 
     if (rows.length === 0) return null;
-
     return this.mapRowToMediaInfo(rows[0]);
   }
 
   /**
-   * Update media
+   * Delete media (file + database record)
    */
-  async updateMedia(
-    mediaId: number,
-    updates: Partial<MediaInfo>,
-    updatedBy?: number
-  ): Promise<boolean> {
-    const fields: string[] = [];
-    const values: any[] = [];
-
-    if (updates.mediaCaption !== undefined) {
-      fields.push("media_caption = ?");
-      values.push(updates.mediaCaption);
-    }
-    if (updates.mediaAltText !== undefined) {
-      fields.push("media_alt_text = ?");
-      values.push(updates.mediaAltText);
-    }
-    if (updates.mediaCredit !== undefined) {
-      fields.push("media_credit = ?");
-      values.push(updates.mediaCredit);
-    }
-    if (updatedBy !== undefined) {
-      fields.push("updated_by = ?");
-      values.push(updatedBy);
-    }
-
-    if (fields.length === 0) return false;
-
-    values.push(mediaId);
-
-    await pool.query(
-      `UPDATE ltng_news_media 
-       SET ${fields.join(", ")}, updated_at = NOW() 
-       WHERE media_id = ?`,
-      values
-    );
-
-    return true;
-  }
-
-  /**
-   * Soft delete media
-   */
-  async deleteMedia(mediaId: number, deletedBy?: number): Promise<boolean> {
-    await pool.query(
-      `UPDATE ltng_news_media 
-       SET is_deleted = TRUE, updated_by = ?, updated_at = NOW() 
-       WHERE media_id = ?`,
-      [deletedBy || null, mediaId]
-    );
-
-    return true;
-  }
-
-  /**
-   * Extract media information from Telegram message
-   */
-  private extractMediaInfo(message: any): MediaInfo | null {
-    const media = message.media;
-
-    if (!media) return null;
-
-    const mediaInfo: MediaInfo = {
-      mediaUrl: "", // Will be set later
-      mediaType: MediaType.OTHER,
-      mediaCaption: message.message || null,
-    };
-
-    // Handle photos
-    if (media.photo) {
-      mediaInfo.mediaType = MediaType.IMAGE;
-      mediaInfo.mediaMimeType = "image/jpeg";
-
-      // Get largest photo size
-      const sizes = media.photo.sizes || [];
-      const largestSize = sizes[sizes.length - 1];
-      if (largestSize) {
-        mediaInfo.mediaWidth = largestSize.w;
-        mediaInfo.mediaHeight = largestSize.h;
-      }
-    }
-    // Handle documents (videos, audio, files)
-    else if (media.document) {
-      const doc = media.document;
-      mediaInfo.mediaMimeType = doc.mimeType || "application/octet-stream";
-
-      // Check for video
-      const videoAttr = doc.attributes?.find(
-        (a: any) => a.className === "DocumentAttributeVideo"
+  async deleteMedia(mediaId: number): Promise<boolean> {
+    try {
+      const [media]: any = await pool.query(
+        `SELECT media_path FROM ltng_news_radar_media WHERE media_id = ?`,
+        [mediaId]
       );
-      if (videoAttr) {
-        mediaInfo.mediaType = MediaType.VIDEO;
-        mediaInfo.mediaWidth = videoAttr.w;
-        mediaInfo.mediaHeight = videoAttr.h;
-        mediaInfo.mediaDuration = videoAttr.duration;
-      }
-      // Check for audio
-      else if (doc.mimeType?.startsWith("audio/")) {
-        mediaInfo.mediaType = MediaType.AUDIO;
-        const audioAttr = doc.attributes?.find(
-          (a: any) => a.className === "DocumentAttributeAudio"
-        );
-        if (audioAttr) {
-          mediaInfo.mediaDuration = audioAttr.duration;
+
+      if (media.length === 0) return false;
+
+      // Delete file if exists
+      if (media[0].media_path) {
+        const fullPath = path.join(this.mediaDir, media[0].media_path);
+        if (fs.existsSync(fullPath)) {
+          fs.unlinkSync(fullPath);
+          console.log(`🗑️  Deleted file: ${media[0].media_path}`);
         }
       }
-      // Other document types
-      else {
-        mediaInfo.mediaType = MediaType.OTHER;
-      }
-    }
-    // Handle other media types
-    else {
-      return null;
-    }
 
-    return mediaInfo;
+      // Delete database record
+      await pool.query(`DELETE FROM ltng_news_radar_media WHERE media_id = ?`, [
+        mediaId,
+      ]);
+
+      return true;
+    } catch (error: any) {
+      console.error(`❌ Failed to delete media: ${error.message}`);
+      return false;
+    }
   }
 
   /**
-   * Generate filename for media
+   * Clean up old media
    */
-  private generateFileName(message: any, mediaInfo: MediaInfo): string {
-    const timestamp = Date.now();
-    const messageId = message.id;
+  async cleanupOldMedia(olderThanDays: number = 30): Promise<number> {
+    try {
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
 
-    let extension = "bin";
+      const [oldMedia]: any = await pool.query(
+        `SELECT media_id FROM ltng_news_radar_media WHERE created_at < ?`,
+        [cutoffDate]
+      );
 
-    // Determine extension from MIME type
-    if (mediaInfo.mediaMimeType) {
-      const mimeMap: { [key: string]: string } = {
-        "image/jpeg": "jpg",
-        "image/png": "png",
-        "image/gif": "gif",
-        "image/webp": "webp",
-        "video/mp4": "mp4",
-        "video/quicktime": "mov",
-        "video/x-matroska": "mkv",
-        "audio/mpeg": "mp3",
-        "audio/ogg": "ogg",
-        "audio/wav": "wav",
+      let deletedCount = 0;
+
+      for (const media of oldMedia) {
+        const deleted = await this.deleteMedia(media.media_id);
+        if (deleted) deletedCount++;
+      }
+
+      console.log(`🗑️  Cleaned up ${deletedCount} old media files`);
+      return deletedCount;
+    } catch (error: any) {
+      console.error(`❌ Cleanup failed: ${error.message}`);
+      return 0;
+    }
+  }
+
+  /**
+   * Get full file path for media
+   */
+  getFullPath(mediaPath: string): string {
+    return path.join(this.mediaDir, mediaPath);
+  }
+
+  /**
+   * Get public URL for media
+   */
+  getPublicUrl(mediaPath: string): string {
+    return `${this.baseUrl}/${mediaPath.replace(/\\/g, "/")}`;
+  }
+
+  /**
+   * Check if media file exists
+   */
+  fileExists(mediaPath: string): boolean {
+    const fullPath = this.getFullPath(mediaPath);
+    return fs.existsSync(fullPath);
+  }
+
+  // ==================== PRIVATE METHODS ====================
+
+  /**
+   * Ensure media directory structure exists
+   */
+  private ensureMediaDirectory(): void {
+    if (!fs.existsSync(this.mediaDir)) {
+      fs.mkdirSync(this.mediaDir, { recursive: true });
+      console.log(`📁 Created media directory: ${this.mediaDir}`);
+    }
+
+    const subdirs = ["images", "videos", "audio", "documents"];
+    subdirs.forEach((subdir) => {
+      const fullPath = path.join(this.mediaDir, subdir);
+      if (!fs.existsSync(fullPath)) {
+        fs.mkdirSync(fullPath, { recursive: true });
+      }
+    });
+  }
+
+  /**
+   * Fetch media from URL
+   */
+  private async fetchFromUrl(
+    url: string,
+    timeout: number = 30000
+  ): Promise<Buffer> {
+    const response = await axios.get(url, {
+      responseType: "arraybuffer",
+      timeout,
+      maxRedirects: 5,
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      },
+    });
+
+    return Buffer.from(response.data);
+  }
+
+  /**
+   * Detect MIME type from buffer and URL
+   */
+  private async detectMimeType(buffer: Buffer, url?: string): Promise<string> {
+    // Try to detect from file signature (magic bytes)
+    const signature = buffer.slice(0, 12).toString("hex");
+
+    // Common file signatures
+    if (signature.startsWith("ffd8ff")) return "image/jpeg";
+    if (signature.startsWith("89504e47")) return "image/png";
+    if (signature.startsWith("47494638")) return "image/gif";
+    if (signature.startsWith("52494646") && signature.includes("57454250"))
+      return "image/webp";
+    if (signature.startsWith("000000")) return "video/mp4";
+
+    // Fallback to URL extension
+    if (url) {
+      const ext = path.extname(url).toLowerCase().replace(".", "");
+      const extMap: { [key: string]: string } = {
+        jpg: "image/jpeg",
+        jpeg: "image/jpeg",
+        png: "image/png",
+        gif: "image/gif",
+        webp: "image/webp",
+        svg: "image/svg+xml",
+        mp4: "video/mp4",
+        webm: "video/webm",
+        mp3: "audio/mpeg",
+        ogg: "audio/ogg",
+        wav: "audio/wav",
       };
 
-      extension = mimeMap[mediaInfo.mediaMimeType] || extension;
+      if (extMap[ext]) return extMap[ext];
     }
 
-    // Check if document has a filename
-    if (message.media?.document?.attributes) {
-      const fileAttr = message.media.document.attributes.find(
-        (a: any) => a.fileName
-      );
-      if (fileAttr?.fileName) {
-        return fileAttr.fileName;
-      }
-    }
+    return "application/octet-stream";
+  }
 
-    return `${mediaInfo.mediaType.toLowerCase()}_${messageId}_${timestamp}.${extension}`;
+  /**
+   * Save media buffer to disk
+   */
+  private async saveMediaToDisk(
+    buffer: Buffer,
+    mediaType: string,
+    mimeType: string,
+    options: MediaDownloadOptions
+  ): Promise<{
+    fullPath: string;
+    relativePath: string;
+    filename: string;
+    fileSize: number;
+  }> {
+    const extension = this.getExtensionFromMime(mimeType) || "bin";
+    const filename = this.generateFilename(
+      options.articleId,
+      options.sourceName,
+      extension
+    );
+
+    const subdir = this.getSubdirectory(mediaType);
+    const relativePath = path.join(subdir, filename);
+    const fullPath = path.join(this.mediaDir, relativePath);
+
+    // Write file
+    fs.writeFileSync(fullPath, buffer);
+
+    // Get file size
+    const stats = fs.statSync(fullPath);
+
+    return {
+      fullPath,
+      relativePath,
+      filename,
+      fileSize: stats.size,
+    };
+  }
+
+  /**
+   * Save media metadata to database
+   */
+  private async saveMediaMetadata(data: {
+    radarId: number;
+    mediaType: "image" | "video" | "audio" | "document";
+    mediaUrl: string | null;
+    mediaPath: string | null;
+    mimeType: string | null;
+    fileSize: number | null;
+    width?: number;
+    height?: number;
+    duration?: number;
+  }): Promise<number> {
+    const [result]: any = await pool.query(
+      `INSERT INTO ltng_news_radar_media (
+        radar_id,
+        media_type,
+        media_url,
+        media_path,
+        media_mime_type,
+        media_size,
+        media_width,
+        media_height,
+        media_duration,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [
+        data.radarId,
+        data.mediaType,
+        data.mediaUrl,
+        data.mediaPath,
+        data.mimeType,
+        data.fileSize,
+        data.width || null,
+        data.height || null,
+        data.duration || null,
+      ]
+    );
+
+    return result.insertId;
+  }
+
+  /**
+   * Get media type from MIME type
+   */
+  private getMediaTypeFromMime(mimeType: string): string {
+    if (mimeType.startsWith("image/")) return "image";
+    if (mimeType.startsWith("video/")) return "video";
+    if (mimeType.startsWith("audio/")) return "audio";
+    return "document";
+  }
+
+  /**
+   * Get Telegram media type
+   */
+  private getTelegramMediaType(media: any): string {
+    if (media.photo) return "image";
+    if (media.document) {
+      const mimeType = media.document.mimeType || "";
+      if (mimeType.startsWith("video/")) return "video";
+      if (mimeType.startsWith("audio/")) return "audio";
+    }
+    return "document";
+  }
+
+  /**
+   * Get Telegram MIME type
+   */
+  private getTelegramMimeType(media: any): string {
+    if (media.photo) return "image/jpeg";
+    if (media.document) {
+      return media.document.mimeType || "application/octet-stream";
+    }
+    return "application/octet-stream";
+  }
+
+  /**
+   * Get file extension from MIME type
+   */
+  private getExtensionFromMime(mimeType: string): string | null {
+    const mimeMap: { [key: string]: string } = {
+      "image/jpeg": "jpg",
+      "image/jpg": "jpg",
+      "image/png": "png",
+      "image/gif": "gif",
+      "image/webp": "webp",
+      "image/svg+xml": "svg",
+      "video/mp4": "mp4",
+      "video/webm": "webm",
+      "video/quicktime": "mov",
+      "audio/mpeg": "mp3",
+      "audio/ogg": "ogg",
+      "audio/wav": "wav",
+      "application/pdf": "pdf",
+    };
+
+    return mimeMap[mimeType.toLowerCase()] || null;
+  }
+
+  /**
+   * Generate unique filename
+   */
+  private generateFilename(
+    articleId: number,
+    source: string,
+    extension: string
+  ): string {
+    const timestamp = Date.now();
+    const random = crypto.randomBytes(4).toString("hex");
+    const sanitizedSource = source
+      .replace(/[^a-z0-9]/gi, "_")
+      .toLowerCase()
+      .substring(0, 20);
+
+    return `${sanitizedSource}_${articleId}_${timestamp}_${random}.${extension}`;
+  }
+
+  /**
+   * Get subdirectory for media type
+   */
+  private getSubdirectory(mediaType: string): string {
+    const dirMap: { [key: string]: string } = {
+      image: "images",
+      video: "videos",
+      audio: "audio",
+      document: "documents",
+    };
+
+    return dirMap[mediaType] || "documents";
+  }
+
+  /**
+   * Validate URL
+   */
+  private isValidUrl(url: string): boolean {
+    try {
+      const parsed = new URL(url);
+      return parsed.protocol === "http:" || parsed.protocol === "https:";
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Format bytes to human-readable size
+   */
+  private formatBytes(bytes: number): string {
+    if (bytes === 0) return "0 Bytes";
+
+    const k = 1024;
+    const sizes = ["Bytes", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
+  }
+
+  /**
+   * Create error result
+   */
+  private createErrorResult(error: string): MediaDownloadResult {
+    return {
+      success: false,
+      error,
+    };
   }
 
   /**
@@ -410,66 +680,19 @@ export class MediaService {
   private mapRowToMediaInfo(row: any): MediaInfo {
     return {
       mediaId: row.media_id,
+      radarId: row.radar_id,
+      mediaType: row.media_type,
       mediaUrl: row.media_url,
-      mediaType: row.media_type as MediaType,
-      mediaCaption: row.media_caption,
-      mediaAltText: row.media_alt_text,
-      mediaCredit: row.media_credit,
-      mediaWidth: row.media_width,
-      mediaHeight: row.media_height,
-      mediaDuration: row.media_duration,
-      mediaMimeType: row.media_mime_type,
-      createdBy: row.created_by,
+      mediaPath: row.media_path,
+      mimeType: row.media_mime_type,
+      fileSize: row.media_size,
+      width: row.media_width,
+      height: row.media_height,
+      duration: row.media_duration,
+      createdAt: row.created_at,
     };
-  }
-
-  /**
-   * Get media type from MIME type
-   */
-  getMediaTypeFromMime(mimeType: string): MediaType {
-    if (mimeType.startsWith("image/")) return MediaType.IMAGE;
-    if (mimeType.startsWith("video/")) return MediaType.VIDEO;
-    if (mimeType.startsWith("audio/")) return MediaType.AUDIO;
-    return MediaType.OTHER;
-  }
-
-  /**
-   * Clean up old media files (optional utility)
-   */
-  async cleanupOldMedia(daysOld: number = 30): Promise<number> {
-    const [rows] = (await pool.query(
-      `SELECT media_id, media_url 
-       FROM ltng_news_media 
-       WHERE created_at < DATE_SUB(NOW(), INTERVAL ? DAY)
-       AND is_deleted = TRUE`,
-      [daysOld]
-    )) as any;
-
-    let deletedCount = 0;
-
-    for (const row of rows) {
-      try {
-        // Extract file path from URL
-        const urlPath = row.media_url.replace(this.BASE_URL, "");
-        const filePath = path.join(this.MEDIA_DIR, urlPath);
-
-        // Delete file if it exists
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-          deletedCount++;
-        }
-
-        // Delete database record
-        await pool.query("DELETE FROM ltng_news_media WHERE media_id = ?", [
-          row.media_id,
-        ]);
-      } catch (error) {
-        console.error(`Failed to delete media ${row.media_id}:`, error);
-      }
-    }
-
-    return deletedCount;
   }
 }
 
+// Export singleton instance
 export const mediaService = new MediaService();

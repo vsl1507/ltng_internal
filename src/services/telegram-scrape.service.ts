@@ -289,18 +289,19 @@ export class ScrapeService {
 
       // Found first valid media - process it
       if (config.common.media.download) {
-        const mediaPath = await mediaService.downloadMessageMedia(
-          msg,
-          articleId,
-          channelUsername
-        );
+        const mediaPath = await mediaService.downloadFromTelegram(msg, {
+          articleId: articleId,
+          sourceName: config.telegram.username,
+          sourceType: config.platform,
+        });
+        console.log("articleId: ", articleId);
 
         if (mediaPath) {
           console.log(`✅ Downloaded first media: ${mediaPath}`);
           return true; // Stop after first successful download
         }
       } else {
-        await mediaService.saveMediaInfo(msg, articleId);
+        // await mediaService.saveMediaInfo(msg, articleId);
         console.log(`✅ Saved first media info`);
         return true; // Stop after first successful save
       }
