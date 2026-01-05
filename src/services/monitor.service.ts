@@ -35,6 +35,7 @@ export class MonitorService {
   private async checkAndPostNewData(): Promise<void> {
     try {
       const unpostedPosts = await this.postDeliveryService.getUnpostedPosts();
+      console.log(unpostedPosts);
 
       if (unpostedPosts.length > 0) {
         console.log(`📝 Found ${unpostedPosts.length} new post(s)`);
@@ -72,33 +73,58 @@ export class MonitorService {
   private formatPostMessage(post: any): string {
     let message = "";
 
-    // Khmer Section
+    /* ---------------- Khmer Section ---------------- */
     if (post.title_kh && post.content_kh) {
+      // Category (Khmer)
+      if (post.category_name_kh) {
+        message += `**#${this.toCamelCase(post.category_name_kh)}**\n`;
+      }
+
+      // Tags (Khmer)
+      const khTags = this.extractTags(post.tags, "kh");
+      if (khTags.length > 0) {
+        message +=
+          khTags.map((tag) => `#_${this.toCamelCase(tag)}`).join(" ") + "\n";
+      }
+
+      // Title + Content (Khmer)
       message += `🇰🇭 **${post.title_kh}**\n\n`;
       message += `${post.content_kh}\n\n`;
-      message += "━━━━━━━━━━━━━━━━\n\n";
+
+      message += "\n━━━━━━━━━━━━━━━━\n\n";
     }
 
-    // English Section
+    /* ---------------- English Section ---------------- */
+
+    // Category (English)
+    if (post.category_name_en) {
+      message += `**#${this.toCamelCase(post.category_name_en)}**\n`;
+    }
+
+    // Tags (English)
+    const enTags = this.extractTags(post.tags, "en");
+    if (enTags.length > 0) {
+      message +=
+        enTags.map((tag) => `#_${this.toCamelCase(tag)}`).join(" ") + "\n";
+    }
+
+    // Title + Content (English)
     message += `🇬🇧 **${post.title_en}**\n\n`;
     message += `${post.content_en}\n\n`;
 
-    // Source URLs - Safe parsing
+    /* ---------------- Sources ---------------- */
     if (post.article_urls) {
       try {
         let urls: string[] = [];
 
-        // Check if it's already an array
         if (Array.isArray(post.article_urls)) {
           urls = post.article_urls;
-        }
-        // Check if it's a string that needs parsing
-        else if (typeof post.article_urls === "string") {
+        } else if (typeof post.article_urls === "string") {
           urls = JSON.parse(post.article_urls);
         }
 
-        if (urls && urls.length > 0) {
-          message += "━━━━━━━━━━━━━━━━\n";
+        if (urls.length > 0) {
+          message += "\n━━━━━━━━━━━━━━━━\n";
           message += "📌 **Sources:**\n";
 
           urls.forEach((url: string, index: number) => {
@@ -107,8 +133,6 @@ export class MonitorService {
         }
       } catch (error) {
         console.warn("⚠️ Failed to parse article URLs:", error);
-        console.log("Raw article_urls:", post.article_urls);
-        // Continue without URLs rather than failing completely
       }
     }
 
@@ -126,5 +150,33 @@ export class MonitorService {
     return (
       message.substring(0, maxLength - 50) + "\n\n[... Content truncated ...]"
     );
+  }
+
+  private extractTags(tags: any, lang: "en" | "kh"): string[] {
+    try {
+      let parsedTags: any[] = [];
+
+      if (Array.isArray(tags)) {
+        parsedTags = tags;
+      } else if (typeof tags === "string") {
+        parsedTags = JSON.parse(tags);
+      }
+
+      return parsedTags
+        .map((tag) => (lang === "kh" ? tag.tag_name_kh : tag.tag_name_en))
+        .filter(Boolean);
+    } catch (error) {
+      console.warn("⚠️ Failed to parse tags:", error);
+      console.log("Raw tags:", tags);
+      return [];
+    }
+  }
+
+  private toCamelCase(text: string): string {
+    return text
+      .replace(/[^a-zA-Z0-9\u1780-\u17FF\s]/g, "")
+      .split(/\s+/)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join("");
   }
 }

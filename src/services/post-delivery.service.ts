@@ -25,13 +25,21 @@ export class NewsPostDeliveryService {
   pd.delivery_id,
   pd.radar_ai_id,
   pd.telegram_id,
+
   t.telegram_chat_id AS chat_id,
   t.telegram_name,
+
   ai.radar_ai_title_en AS title_en,
   ai.radar_ai_content_en AS content_en,
   ai.radar_ai_title_kh AS title_kh,
   ai.radar_ai_content_kh AS content_kh,
   ai.radar_ai_story_number AS story_number,
+
+  c.category_id,
+  c.category_name_en AS category_name_en,
+  c.category_name_kh AS category_name_kh,
+
+  /* Article URLs */
   COALESCE(
     (
       SELECT JSON_ARRAYAGG(r.radar_url)
@@ -41,19 +49,48 @@ export class NewsPostDeliveryService {
         AND r.radar_url IS NOT NULL
     ),
     JSON_ARRAY()
-  ) AS article_urls
+  ) AS article_urls,
+
+  /* Tags */
+  COALESCE(
+    (
+      SELECT JSON_ARRAYAGG(
+        JSON_OBJECT(
+          'tag_id', tg.tag_id,
+          'tag_name_en', tg.tag_name_en,
+          'tag_name_kh', tg.tag_name_kh
+        )
+      )
+      FROM ltng_news_radar_ai_tags ait
+      JOIN ltng_news_tags tg
+        ON tg.tag_id = ait.tag_id
+      WHERE ait.radar_ai_id = ai.radar_ai_id
+        AND tg.is_deleted = FALSE
+    ),
+    JSON_ARRAY()
+  ) AS tags
+
 FROM ltng_news_post_deliveries pd
+
 JOIN ltng_news_radar_ai ai
   ON pd.radar_ai_id = ai.radar_ai_id
+
 JOIN ltng_news_telegram t
   ON pd.telegram_id = t.telegram_id
+
+LEFT JOIN ltng_news_categories c
+  ON ai.radar_ai_category_id = c.category_id
+  AND c.is_deleted = FALSE
+
 WHERE pd.telegram_message_id IS NULL
   AND pd.delivery_status = 'PENDING'
   AND pd.is_deleted = FALSE
   AND ai.is_deleted = FALSE
   AND t.is_deleted = FALSE
   AND t.telegram_is_active = TRUE
-ORDER BY pd.delivery_id ASC
+
+ORDER BY pd.delivery_id ASC;
+
       `
     );
 

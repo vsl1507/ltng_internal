@@ -30,9 +30,9 @@ const websiteScrapeService = new WebsiteScrapeService();
 
 // Scrape scheduling configuration
 const TELEGRAM_SCRAPE_SCHEDULE =
-  process.env.TELEGRAM_SCRAPE_SCHEDULE || "*/30 * * * *"; // Every 30 minutes
+  process.env.TELEGRAM_SCRAPE_SCHEDULE || "*/30 * * * * *"; // Every 30 minutes
 const WEBSITE_SCRAPE_SCHEDULE =
-  process.env.WEBSITE_SCRAPE_SCHEDULE || "0 */2 * * *"; // Every 2 hours
+  process.env.WEBSITE_SCRAPE_SCHEDULE || "*/30 * * * * *"; // Every 2 hours
 
 // Middleware
 app.use(cors());
