@@ -54,6 +54,8 @@ export class MediaService {
     try {
       const media = message.media;
 
+      console.log(message);
+
       // Skip web page previews
       if (media.className === "MessageMediaWebPage") {
         console.log("Skipping web page preview");

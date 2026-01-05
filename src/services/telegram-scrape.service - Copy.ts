@@ -1,25 +1,30 @@
-// services/telegram-scrape.service.ts
-
 import pool from "../config/mysql.config";
 import { getTelegramClient } from "../config/telegram.config";
 import { TelegramSourceConfig } from "../types/telegram.type";
 import { mediaService } from "./media.service";
-import {
-  generateContentHash,
-  findOrCreateStoryNumber,
-  findStoryLeader,
-  isDuplicate,
-  stripUrls,
-  stripEmojis,
-  sourceScrape,
-} from "../utils/scrape.utils";
+import axios from "axios";
 import { radarAIService } from "./radar-ai.service";
+import { sourceScrape } from "../utils/scrape.utils";
 
 // ========== CONSTANTS ==========
+const SIMILARITY_THRESHOLD = 0.65;
+const TEXT_COMPARISON_LIMIT = 1000;
 const TITLE_MAX_LENGTH = 200;
 const TITLE_SHORT_LENGTH = 100;
+const OLLAMA_TIMEOUT = 180000;
+const OLLAMA_URL = process.env.OLLAMA_API_URL;
+const OLLAMA_MDOEL = process.env.OLLAMA_MODEL;
+const OLLAMA_API_KEY = process.env.OLLAMA_API_KEY;
 
 // ========== INTERFACES ==========
+interface StoryNumberResult {
+  storyNumber: number;
+  isNewStory: boolean;
+  isBreaking?: boolean;
+  similarity?: number;
+  matchedArticleId?: number;
+}
+
 interface ScrapeResult {
   success: boolean;
   sourceId: number;
@@ -31,6 +36,11 @@ interface ScrapeResult {
   skipped: number;
   duplicateUrls: number;
   errors?: string[];
+}
+
+interface SimilarityResult {
+  same_story: number;
+  is_breaking: boolean;
 }
 
 // ========== SERVICE ==========
@@ -69,6 +79,8 @@ export class ScrapeService {
    */
   private async fetchActiveSources(): Promise<any[]> {
     const sources = await sourceScrape("telegram");
+
+    console.log(`🔍 Found ${sources.length} active Telegram sources`);
 
     if (sources.length === 0) {
       throw new Error("No active Telegram sources found");
@@ -157,11 +169,11 @@ export class ScrapeService {
           mainMessage.id
         );
         const messagePublished = new Date(mainMessage.date * 1000);
-        const processedText = await this.processMessageText(
+        const processedText = this.processMessageText(
           mainMessage.message,
           config
         );
-        const contentHash = await generateContentHash(processedText);
+        const contentHash = this.generateContentHash(processedText);
 
         // Validate and check for duplicates
         if (this.shouldSkipMessage(processedText, mediaGroup, config)) {
@@ -169,7 +181,7 @@ export class ScrapeService {
           continue;
         }
 
-        if (await isDuplicate(messageUrl, contentHash)) {
+        if (await this.isDuplicate(messageUrl, contentHash)) {
           console.log(`⭐️ Skipping duplicate URL: ${messageUrl}`);
           duplicateUrlCount++;
           continue;
@@ -232,14 +244,15 @@ export class ScrapeService {
   ): Promise<number | null> {
     const title = this.generateTitle(processedText, mainMessage.message);
 
-    const storyResult = await findOrCreateStoryNumber(
+    const storyResult = await this.findOrCreateStoryNumber(
       title,
       processedText,
       source.source_id
     );
+
     const parentId = storyResult.isNewStory
       ? null
-      : await findStoryLeader(storyResult.storyNumber);
+      : await this.findStoryLeader(storyResult.storyNumber);
 
     const [insertResult] = (await pool.query(
       `INSERT INTO ltng_news_radar (
@@ -261,6 +274,28 @@ export class ScrapeService {
     )) as any;
 
     return insertResult.insertId;
+  }
+
+  /**
+   * Find story leader for a given story number
+   */
+  private async findStoryLeader(storyNumber: number): Promise<number | null> {
+    const [leaderRows] = (await pool.query(
+      `SELECT radar_id FROM ltng_news_radar 
+       WHERE radar_story_number = ? 
+         AND radar_is_story_leader = TRUE 
+         AND is_deleted = FALSE 
+       LIMIT 1`,
+      [storyNumber]
+    )) as any;
+
+    if (leaderRows.length > 0) {
+      console.log(`🔎 Found story leader: Article #${leaderRows[0].radar_id}`);
+      return leaderRows[0].radar_id;
+    }
+
+    console.warn(`⚠️ No leader found for story #${storyNumber}`);
+    return null;
   }
 
   /**
@@ -322,6 +357,252 @@ export class ScrapeService {
     } catch (error) {
       console.error("❌ AI processing failed:", error);
     }
+  }
+
+  /**
+   * Find or create story number for grouping related articles
+   */
+  private async findOrCreateStoryNumber(
+    title: string,
+    content: string,
+    sourceId: number
+  ): Promise<StoryNumberResult> {
+    const existingArticles = await this.fetchRecentArticles(sourceId);
+
+    if (existingArticles.length === 0) {
+      const newStoryNumber = await this.generateNewStoryNumber();
+      return { storyNumber: newStoryNumber, isNewStory: true };
+    }
+
+    const similarArticle = await this.findSimilarArticle(
+      title,
+      content,
+      existingArticles
+    );
+
+    if (similarArticle) {
+      return {
+        storyNumber: similarArticle.radar_story_number,
+        isNewStory: false,
+      };
+    }
+
+    const newStoryNumber = await this.generateNewStoryNumber();
+    console.log(
+      `🆕 No similar articles found, created new story #${newStoryNumber}`
+    );
+
+    return { storyNumber: newStoryNumber, isNewStory: true };
+  }
+
+  /**
+   * Fetch recent articles for similarity comparison
+   */
+  private async fetchRecentArticles(sourceId: number): Promise<any[]> {
+    const [rows] = await pool.query(
+      `
+    SELECT * FROM (
+      SELECT *,
+        ROW_NUMBER() OVER (
+          PARTITION BY radar_story_number 
+          ORDER BY radar_scraped_at ASC
+        ) AS rn_first,
+        ROW_NUMBER() OVER (
+          PARTITION BY radar_story_number 
+          ORDER BY radar_scraped_at DESC
+        ) AS rn_last
+      FROM ltng_news_radar
+      WHERE radar_story_number IS NOT NULL
+        AND is_deleted = FALSE
+        AND radar_source_id != ?
+        AND radar_scraped_at >= NOW() - INTERVAL 48 HOUR
+    ) t
+    WHERE radar_is_story_leader = 1
+       OR rn_last = 1
+    ORDER BY radar_scraped_at DESC
+    LIMIT 200
+    `,
+      [sourceId]
+    );
+
+    return rows as any[];
+  }
+
+  /**
+   * Find similar article from existing articless
+   */
+  private async findSimilarArticle(
+    title: string,
+    content: string,
+    existingArticles: any[]
+  ): Promise<any | null> {
+    const newText = `${title} ${content}`;
+
+    for (const article of existingArticles) {
+      const existingText = `${article.radar_title} ${article.radar_content}`;
+      const similarity = await this.calculateTextSimilarity(
+        newText,
+        existingText
+      );
+
+      if (similarity && similarity.same_story > SIMILARITY_THRESHOLD) {
+        const matchPercent = Math.round(similarity.same_story * 100);
+        console.log(
+          `🔎 Found similar article (${matchPercent}% match), using story #${article.radar_story_number}`
+        );
+        return article;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Calculate semantic similarity between two texts using AI
+   */
+  private async calculateTextSimilarity(
+    text1: string,
+    text2: string
+  ): Promise<SimilarityResult | null> {
+    try {
+      const prompt = this.buildSimilarityPrompt(text1, text2);
+
+      const res = await axios.post(
+        `${OLLAMA_URL}/api/generate`,
+        {
+          model: OLLAMA_MDOEL,
+          prompt,
+          stream: false,
+          options: {
+            temperature: 0.1,
+            num_predict: 1000,
+          },
+        },
+        {
+          timeout: OLLAMA_TIMEOUT,
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${OLLAMA_API_KEY}`,
+          },
+        }
+      );
+
+      if (!res.data?.response) {
+        throw new Error("Empty response from Ollama");
+      }
+
+      const result = this.parseSimilarityResponse(res.data.response);
+      this.logSimilarityResult(result);
+
+      return {
+        same_story: result.same_story
+          ? result.confidence
+          : 1 - result.confidence,
+        is_breaking: result.is_breaking,
+      };
+    } catch (error) {
+      console.error("❌ AI similarity calculation failed:", error);
+      return null;
+    }
+  }
+
+  private buildSimilarityPrompt(text1: string, text2: string): string {
+    const truncate = (
+      text: string,
+      maxLength: number = TEXT_COMPARISON_LIMIT
+    ) =>
+      text.length > maxLength ? text.substring(0, maxLength) + "..." : text;
+
+    return `You are a STRICT semantic comparison engine.
+
+TASK: Determine whether Article 1 and Article 2 describe the SAME REAL-WORLD EVENT.
+
+DEFINITION: "SAME STORY" means BOTH articles describe:
+- the same people or group
+- the same date or time period
+- the same location
+- the same action
+- the same purpose or outcome
+
+RULES:
+- Compare ONLY meaning and facts
+- IGNORE writing style, formatting, emojis, hashtags
+- IGNORE duplicated or truncated sentences
+- Do NOT infer missing facts
+- If core facts match → same_story = true
+
+BREAKING NEWS CLASSIFICATION:
+- BREAKING NEWS: New, urgent, time-sensitive events
+- Indicators: "today", "now", "just", "latest", "breaking"
+- Emergency, crisis, attack, disaster, arrest, resignation
+
+Article 1:
+<<<
+${truncate(text1)}
+>>>
+
+Article 2:
+<<<
+${truncate(text2)}
+>>>
+
+Respond ONLY with valid JSON. NO markdown. NO extra text.
+
+JSON FORMAT:
+{
+  "same_story": true or false,
+  "difference": 0-100,
+  "is_breaking": true or false,
+  "confidence": 0.0-1.0,
+  "reasoning": "one short sentence"
+}`;
+  }
+
+  /**
+   * Parse AI similarity response
+   */
+  private parseSimilarityResponse(rawResponse: string): any {
+    const jsonMatch = rawResponse.match(/\{[\s\S]*?\}/);
+    const jsonStr = jsonMatch ? jsonMatch[0] : rawResponse;
+    const result = JSON.parse(jsonStr);
+
+    if (
+      !result.hasOwnProperty("same_story") ||
+      !result.hasOwnProperty("confidence")
+    ) {
+      throw new Error("Invalid response structure from Ollama");
+    }
+
+    return result;
+  }
+
+  /**
+   * Log similarity comparison result
+   */
+  private logSimilarityResult(result: any): void {
+    const status = result.same_story ? "SAME" : "DIFFERENT";
+    const confidence = Math.round(result.confidence * 100);
+    console.log(
+      `🤖 AI comparison: ${status} story (${confidence}% confidence)`
+    );
+    console.log(`Reasoning: ${result.reasoning}`);
+  }
+
+  /**
+   * Generate new story number
+   */
+  private async generateNewStoryNumber(): Promise<number> {
+    const [result] = (await pool.query(
+      `SELECT MAX(radar_story_number) as max_story_number 
+       FROM ltng_news_radar 
+       WHERE is_deleted = FALSE`
+    )) as any;
+
+    const maxStoryNumber = result[0]?.max_story_number || 0;
+    const newStoryNumber = maxStoryNumber + 1;
+
+    console.log(`🆕 Generated new story number: ${newStoryNumber}`);
+    return newStoryNumber;
   }
 
   // ========== HELPER METHODS ==========
@@ -405,18 +686,18 @@ export class ScrapeService {
   /**
    * Process message text according to config
    */
-  private async processMessageText(
+  private processMessageText(
     text: string,
     config: TelegramSourceConfig
-  ): Promise<string> {
+  ): string {
     let processedText = text || "";
 
     if (config.common.content.strip_urls) {
-      processedText = await stripUrls(processedText);
+      processedText = this.stripUrls(processedText);
     }
 
     if (config.common.content.strip_emojis) {
-      processedText = await stripEmojis(processedText);
+      processedText = this.stripEmojis(processedText);
     }
 
     return processedText;
@@ -434,6 +715,24 @@ export class ScrapeService {
     const minLength = config.common.content.min_text_length;
 
     return processedText.length < minLength && !hasMedia;
+  }
+
+  /**
+   * Check if article already exists
+   */
+  private async isDuplicate(
+    messageUrl: string,
+    contentHash: string
+  ): Promise<boolean> {
+    const [existingRows] = (await pool.query(
+      `SELECT radar_id FROM ltng_news_radar 
+       WHERE (radar_url = ? OR radar_content_hash = ?)
+         AND is_deleted = FALSE 
+       LIMIT 1`,
+      [messageUrl, contentHash]
+    )) as any;
+
+    return existingRows.length > 0;
   }
 
   /**
@@ -465,6 +764,23 @@ export class ScrapeService {
   }
 
   /**
+   * Strip URLs from text
+   */
+  private stripUrls(text: string): string {
+    return text.replace(/https?:\/\/[^\s]+/g, "");
+  }
+
+  /**
+   * Strip emojis from text
+   */
+  private stripEmojis(text: string): string {
+    return text.replace(
+      /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu,
+      ""
+    );
+  }
+
+  /**
    * Generate title from message text
    */
   private generateTitle(processedText: string, originalText: string): string {
@@ -480,6 +796,14 @@ export class ScrapeService {
     return content.length > TITLE_SHORT_LENGTH
       ? content.substring(0, TITLE_SHORT_LENGTH - 3) + "..."
       : content || "Untitled";
+  }
+
+  /**
+   * Generate SHA-256 hash of content for deduplication
+   */
+  private generateContentHash(content: string): string {
+    const crypto = require("crypto");
+    return crypto.createHash("sha256").update(content).digest("hex");
   }
 
   /**

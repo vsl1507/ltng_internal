@@ -17,14 +17,15 @@ import { boostrapTelegram } from "./routes/bot.route";
 import { MonitorService } from "./services/monitor.service";
 import { ensureMediaDirExists, MEDIA_DIR } from "./utils/media-path";
 import { ScrapeService } from "./services/telegram-scrape.service";
+import { WebsiteScrapeService } from "./services/website-scrape.service";
 import { initTelegram } from "./config/telegram.config";
-import { autoScrapeService } from "./services/telegram-auto-scrape.service";
 
 const app = express();
 const PORT = process.env.PORT || 3500;
 const HOST = process.env.DB_HOST || "localhost";
 const monitorService = new MonitorService();
 const scrapeService = new ScrapeService();
+const websiteScrapeService = new WebsiteScrapeService();
 
 // Middleware
 app.use(cors());
@@ -156,9 +157,9 @@ app.use((req: Request, res: Response) => {
 const startServer = async () => {
   await testConnection();
   await initTelegram();
-  // autoScrapeService.startAutoScrape();
   monitorService.start();
   scrapeService.scrapeFromSource();
+  // websiteScrapeService.scrapeFromSource();
 
   app.listen(PORT, () => {
     console.log(`🚀 Server is running on local:  http://localhost:${PORT}`);

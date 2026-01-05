@@ -1,6 +1,6 @@
 export interface NewsPostDelivery {
   delivery_id?: number;
-  post_id: number;
+  radar_ai_id: number;
   telegram_id: number;
   telegram_message_id?: number;
   delivery_status: "PENDING" | "SENT" | "EDITED" | "DELETED" | "FAILED";
@@ -19,7 +19,7 @@ export interface NewsPostDelivery {
 
 export interface NewsPostDeliveryFilters {
   search?: string;
-  post_id?: number;
+  radar_ai_id?: number;
   telegram_id?: number;
   delivery_status?: string;
   date_from?: string;

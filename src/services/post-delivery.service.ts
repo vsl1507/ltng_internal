@@ -11,7 +11,7 @@ export class NewsPostDeliveryService {
   async getUnpostedPosts(): Promise<
     {
       delivery_id: number;
-      post_id: number;
+      radar_ai_id: number;
       telegram_id: number;
       chat_id: string;
       telegram_name: string;
@@ -21,29 +21,40 @@ export class NewsPostDeliveryService {
   > {
     const [rows] = await pool.query<RowDataPacket[]>(
       `
-    SELECT
-      pd.delivery_id,
-      pd.post_id,
-      pd.telegram_id,
-      t.telegram_chat_id AS chat_id,
-      t.telegram_name,
-      r.radar_ai_content_en AS content_en,
-      p.post_content
-    FROM ltng_news_post_deliveries pd
-    JOIN ltng_news_posts p 
-      ON pd.post_id = p.post_id
-    JOIN ltng_news_telegram t 
-      ON pd.telegram_id = t.telegram_id
-    JOIN ltng_news_radar_ai r 
-      ON p.radar_ai_id = r.radar_ai_id
-     WHERE pd.telegram_message_id IS NULL
-      AND pd.delivery_status = 'PENDING'
-      AND pd.is_deleted = FALSE
-      AND p.is_deleted = FALSE
-      AND t.is_deleted = FALSE
-      AND t.telegram_is_active = TRUE
-    ORDER BY pd.delivery_id ASC
-    `
+       SELECT
+  pd.delivery_id,
+  pd.radar_ai_id,
+  pd.telegram_id,
+  t.telegram_chat_id AS chat_id,
+  t.telegram_name,
+  ai.radar_ai_title_en AS title_en,
+  ai.radar_ai_content_en AS content_en,
+  ai.radar_ai_title_kh AS title_kh,
+  ai.radar_ai_content_kh AS content_kh,
+  ai.radar_ai_story_number AS story_number,
+  COALESCE(
+    (
+      SELECT JSON_ARRAYAGG(r.radar_url)
+      FROM ltng_news_radar r
+      WHERE r.radar_story_number = ai.radar_ai_story_number
+        AND r.is_deleted = FALSE
+        AND r.radar_url IS NOT NULL
+    ),
+    JSON_ARRAY()
+  ) AS article_urls
+FROM ltng_news_post_deliveries pd
+JOIN ltng_news_radar_ai ai
+  ON pd.radar_ai_id = ai.radar_ai_id
+JOIN ltng_news_telegram t
+  ON pd.telegram_id = t.telegram_id
+WHERE pd.telegram_message_id IS NULL
+  AND pd.delivery_status = 'PENDING'
+  AND pd.is_deleted = FALSE
+  AND ai.is_deleted = FALSE
+  AND t.is_deleted = FALSE
+  AND t.telegram_is_active = TRUE
+ORDER BY pd.delivery_id ASC
+      `
     );
 
     return rows as any[];
@@ -55,7 +66,7 @@ export class NewsPostDeliveryService {
   //   ): Promise<PaginatedResponse<NewsPostDelivery>> {
   //     const {
   //       search = "",
-  //       post_id,
+  //       radar_ai_id,
   //       telegram_id,
   //       delivery_status,
   //       date_from,
@@ -70,7 +81,7 @@ export class NewsPostDeliveryService {
   //     let query = `
   //       SELECT d.*, p.post_content, p.post_version, t.telegram_name, t.telegram_chat_id
   //       FROM ltng_news_post_deliveries d
-  //       LEFT JOIN ltng_news_posts p ON d.post_id = p.post_id
+  //       LEFT JOIN ltng_news_posts p ON d.radar_ai_id = p.radar_ai_id
   //       LEFT JOIN ltng_news_telegram t ON d.telegram_id = t.telegram_id
   //       WHERE d.is_deleted = ?
   //     `;
@@ -84,9 +95,9 @@ export class NewsPostDeliveryService {
   //     }
 
   //     // Post ID filter
-  //     if (post_id) {
-  //       query += " AND d.post_id = ?";
-  //       params.push(post_id);
+  //     if (radar_ai_id) {
+  //       query += " AND d.radar_ai_id = ?";
+  //       params.push(radar_ai_id);
   //     }
 
   //     // Telegram ID filter
@@ -122,7 +133,7 @@ export class NewsPostDeliveryService {
   //     // Sorting
   //     const validSortColumns = [
   //       "delivery_id",
-  //       "post_id",
+  //       "radar_ai_id",
   //       "telegram_id",
   //       "delivery_status",
   //       "sent_at",
@@ -157,7 +168,7 @@ export class NewsPostDeliveryService {
   //     const [rows] = await pool.query<RowDataPacket[]>(
   //       `SELECT d.*, p.post_content, p.post_version, t.telegram_name, t.telegram_chat_id
   //        FROM ltng_news_post_deliveries d
-  //        LEFT JOIN ltng_news_posts p ON d.post_id = p.post_id
+  //        LEFT JOIN ltng_news_posts p ON d.radar_ai_id = p.radar_ai_id
   //        LEFT JOIN ltng_news_telegram t ON d.telegram_id = t.telegram_id
   //        WHERE d.delivery_id = ? AND d.is_deleted = FALSE`,
   //       [id]
@@ -172,7 +183,7 @@ export class NewsPostDeliveryService {
   //     page: number = 1,
   //     limit: number = 50
   //   ): Promise<PaginatedResponse<NewsPostDelivery>> {
-  //     return this.getAllDeliveries({ post_id: postId, page, limit });
+  //     return this.getAllDeliveries({ radar_ai_id: postId, page, limit });
   //   }
 
   //   // Get deliveries by telegram ID
@@ -189,7 +200,7 @@ export class NewsPostDeliveryService {
   //     const [rows] = await pool.query<RowDataPacket[]>(
   //       `SELECT d.*, p.post_content, p.post_version, t.telegram_name, t.telegram_chat_id
   //        FROM ltng_news_post_deliveries d
-  //        LEFT JOIN ltng_news_posts p ON d.post_id = p.post_id
+  //        LEFT JOIN ltng_news_posts p ON d.radar_ai_id = p.radar_ai_id
   //        LEFT JOIN ltng_news_telegram t ON d.telegram_id = t.telegram_id
   //        WHERE d.delivery_status = 'PENDING'
   //        AND d.is_deleted = FALSE
@@ -203,7 +214,7 @@ export class NewsPostDeliveryService {
   //     const [rows] = await pool.query<RowDataPacket[]>(
   //       `SELECT d.*, p.post_content, p.post_version, t.telegram_name, t.telegram_chat_id
   //        FROM ltng_news_post_deliveries d
-  //        LEFT JOIN ltng_news_posts p ON d.post_id = p.post_id
+  //        LEFT JOIN ltng_news_posts p ON d.radar_ai_id = p.radar_ai_id
   //        LEFT JOIN ltng_news_telegram t ON d.telegram_id = t.telegram_id
   //        WHERE d.delivery_status = 'FAILED'
   //        AND d.retry_count < 3
@@ -267,7 +278,7 @@ export class NewsPostDeliveryService {
 
   //     const [result] = await pool.query<ResultSetHeader>(
   //       `INSERT INTO ltng_news_post_deliveries
-  //        (post_id, telegram_id, delivery_status, retry_count, created_by)
+  //        (radar_ai_id, telegram_id, delivery_status, retry_count, created_by)
   //        VALUES ${placeholders}`,
   //       flatValues
   //     );
@@ -282,11 +293,11 @@ export class NewsPostDeliveryService {
   //   ): Promise<NewsPostDelivery> {
   //     const [result] = await pool.query<ResultSetHeader>(
   //       `INSERT INTO ltng_news_post_deliveries
-  //        (post_id, telegram_id, telegram_message_id, delivery_status, retry_count,
+  //        (radar_ai_id, telegram_id, telegram_message_id, delivery_status, retry_count,
   //         last_error, sent_at, edited_at, deleted_at, created_by, __v)
   //        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
   //       [
-  //         delivery.post_id,
+  //         delivery.radar_ai_id,
   //         delivery.telegram_id,
   //         delivery.telegram_message_id || null,
   //         delivery.delivery_status || "PENDING",
