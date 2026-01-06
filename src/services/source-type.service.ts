@@ -13,8 +13,9 @@ export class NewsSourceTypeService {
   ): Promise<PaginatedResponse<NewsSourceType>> {
     const {
       search = "",
+      slug = "",
       is_deleted = false,
-      sort_by = "create_at",
+      sort_by = "created_at",
       sort_order = "DESC",
       page = 1,
       limit = 50,
@@ -31,22 +32,28 @@ export class NewsSourceTypeService {
       params.push(searchPattern, searchPattern, searchPattern);
     }
 
+    if (slug) {
+      query += " AND source_type_slug = ?";
+      params.push(slug);
+    }
+
     // Count total records
     const countQuery = query.replace("SELECT *", "SELECT COUNT(*) as total");
     const [countResult] = await pool.query<RowDataPacket[]>(countQuery, params);
     const total = countResult[0].total;
 
     // Sorting
+
     const validSortColumns = [
       "source_type_id",
       "source_type_name",
       "source_type_slug",
-      "create_at",
+      "created_at",
       "update_at",
     ];
     const sortColumn = validSortColumns.includes(sort_by)
       ? sort_by
-      : "create_at";
+      : "created_at";
     query += ` ORDER BY ${sortColumn} ${sort_order}`;
 
     // Pagination
@@ -73,15 +80,6 @@ export class NewsSourceTypeService {
     const [rows] = await pool.query<RowDataPacket[]>(
       "SELECT * FROM ltng_news_source_types WHERE source_type_id = ? AND is_deleted = FALSE",
       [id]
-    );
-    return rows.length > 0 ? (rows[0] as NewsSourceType) : null;
-  }
-
-  // Get source type by slug
-  async getSourceTypeBySlug(slug: string): Promise<NewsSourceType | null> {
-    const [rows] = await pool.query<RowDataPacket[]>(
-      "SELECT * FROM ltng_news_source_types WHERE source_type_slug = ? AND is_deleted = FALSE",
-      [slug]
     );
     return rows.length > 0 ? (rows[0] as NewsSourceType) : null;
   }

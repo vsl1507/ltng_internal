@@ -225,9 +225,9 @@ export class WebsiteScrapeService {
           }
 
           // Process with AI if enabled
-          if (config.common.ai.enabled) {
-            await this.processWithAI(articleId);
-          }
+          // if (config.common.ai.enabled) {
+          //   await this.processWithAI(articleId);
+          // }
         }
       } catch (error) {
         console.error("❌ Processing failed:", error);

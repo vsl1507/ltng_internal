@@ -13,6 +13,7 @@ export interface NewsSourceType {
 
 export interface NewsSourceTypeFilters {
   search?: string;
+  slug?: string;
   is_deleted?: boolean;
   sort_by?: string;
   sort_order?: "ASC" | "DESC";

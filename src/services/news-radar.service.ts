@@ -411,8 +411,6 @@ export class NewsRadarService {
       return result.affectedRows;
     }
   }
-
-  
 }
 
-  export default new NewsRadarService();
+export default new NewsRadarService();

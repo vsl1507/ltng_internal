@@ -8,9 +8,9 @@ export const seedSourceTypes = async () => {
       description: "News from websites",
     },
     {
-      name: "Telegram Channel",
-      slug: "telegram-channel",
-      description: "News from Telegram channels",
+      name: "Telegram",
+      slug: "telegram",
+      description: "News from telegram",
     },
   ];
 

@@ -17,6 +17,11 @@ apiRouter.addRoute({
       description: "Search by name, slug, or description",
     },
     {
+      name: "slug",
+      type: "string",
+      description: "Filter by slug",
+    },
+    {
       name: "is_deleted",
       type: "boolean",
       description: "Filter by deleted status",
@@ -79,37 +84,6 @@ apiRouter.addRoute({
       type: "integer",
       required: true,
       description: "Source type ID",
-    },
-  ],
-  responses: {
-    200: {
-      description: "Source type details",
-      schema: "SingleResponse",
-    },
-    404: {
-      description: "Source type not found",
-      schema: "ErrorResponse",
-    },
-    500: {
-      description: "Server error",
-      schema: "ErrorResponse",
-    },
-  },
-});
-
-// Get source type by slug
-apiRouter.addRoute({
-  method: "get",
-  path: "/slug/:slug",
-  handler: (req, res) => SourceTypeController.getSourceTypeBySlug(req, res),
-  summary: "Get source type by slug",
-  tags: ["News Source Types"],
-  pathParams: [
-    {
-      name: "slug",
-      type: "string",
-      required: true,
-      description: "Source type slug",
     },
   ],
   responses: {

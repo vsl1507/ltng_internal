@@ -202,7 +202,7 @@ export class ScrapeService {
           }
 
           // Process with AI
-          await this.processWithAI(articleId);
+          // await this.processWithAI(articleId);
         }
       } catch (error) {
         console.error(`❌ Failed to process message ${message.id}:`, error);

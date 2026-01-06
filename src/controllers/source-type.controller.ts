@@ -12,6 +12,7 @@ export class SourceTypeController {
     try {
       const filters: NewsSourceTypeFilters = {
         search: req.query.search as string,
+        slug: req.query.slug as string,
         is_deleted: req.query.is_deleted === "true",
         sort_by: req.query.sort_by as string,
         sort_order: (req.query.sort_order as "ASC" | "DESC") || "DESC",
@@ -44,29 +45,6 @@ export class SourceTypeController {
       }
 
       const sourceType = await newsSourceTypeService.getSourceTypeById(id);
-
-      if (!sourceType) {
-        ResponseHandler.notFound(res, "Source type not found");
-        return;
-      }
-
-      ResponseHandler.success(
-        res,
-        sourceType,
-        "Source type retrieved successfully"
-      );
-    } catch (error) {
-      console.error("Error fetching source type:", error);
-      ResponseHandler.internalError(res, "Failed to fetch source type");
-    }
-  }
-
-  // Get source type by slug
-  async getSourceTypeBySlug(req: Request, res: Response): Promise<void> {
-    try {
-      const { slug } = req.params;
-
-      const sourceType = await newsSourceTypeService.getSourceTypeBySlug(slug);
 
       if (!sourceType) {
         ResponseHandler.notFound(res, "Source type not found");

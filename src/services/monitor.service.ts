@@ -1,16 +1,13 @@
-import { TelegramPostService } from "./telegram-post.service";
 import { NewsPostDeliveryService } from "./post-delivery.service";
 import { BotService } from "./bot.service";
 
 export class MonitorService {
   private postDeliveryService: NewsPostDeliveryService;
-  private postService: TelegramPostService;
   private botService: BotService;
   private intervalId?: NodeJS.Timeout;
 
   constructor() {
     this.postDeliveryService = new NewsPostDeliveryService();
-    this.postService = new TelegramPostService();
     this.botService = new BotService();
   }
 

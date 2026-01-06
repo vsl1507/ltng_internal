@@ -287,25 +287,24 @@ export async function findOrCreateStoryNumber(
   excludeSourceId?: number
 ): Promise<StoryNumberResult> {
   const existingArticles = await fetchRecentArticles(excludeSourceId);
-  console.log("existingArticles: ", existingArticles);
 
   if (existingArticles.length === 0) {
     const newStoryNumber = await generateNewStoryNumber();
     return { storyNumber: newStoryNumber, isNewStory: true };
   }
 
-  const similarArticle = await findSimilarArticle(
-    title,
-    content,
-    existingArticles
-  );
+  // const similarArticle = await findSimilarArticle(
+  //   title,
+  //   content,
+  //   existingArticles
+  // );
 
-  if (similarArticle) {
-    return {
-      storyNumber: similarArticle.radar_story_number,
-      isNewStory: false,
-    };
-  }
+  // if (similarArticle) {
+  //   return {
+  //     storyNumber: similarArticle.radar_story_number,
+  //     isNewStory: false,
+  //   };
+  // }
 
   const newStoryNumber = await generateNewStoryNumber();
   console.log(

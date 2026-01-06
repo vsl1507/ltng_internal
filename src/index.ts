@@ -11,8 +11,9 @@ import fbAccountRoutes from "./routes/fb-account.route";
 import systemRoutes from "./routes/system.route";
 import sourceTypeRoutes from "./routes/source-type.route";
 import sourceRoutes from "./routes/source.route";
+import newsRadarAIRoutes from "./routes/news-radar-ai.route";
+import newsRadarRoutes from "./routes/news-radar.route";
 import telegramRoutes from "./routes/telegram.route";
-import postRoutes from "./routes/telegram-post.route";
 import { generateSwaggerSpec } from "./config/swagger";
 import { boostrapTelegram } from "./routes/bot.route";
 import { MonitorService } from "./services/monitor.service";
@@ -20,6 +21,7 @@ import { ensureMediaDirExists, MEDIA_DIR } from "./utils/media-path";
 import { ScrapeService } from "./services/telegram-scrape.service";
 import { WebsiteScrapeService } from "./services/website-scrape.service";
 import { initTelegram } from "./config/telegram.config";
+import { SchedulerService } from "./services/shecdule.service";
 
 const app = express();
 const PORT = process.env.PORT || 3500;
@@ -27,12 +29,13 @@ const HOST = process.env.DB_HOST || "localhost";
 const monitorService = new MonitorService();
 const scrapeService = new ScrapeService();
 const websiteScrapeService = new WebsiteScrapeService();
+const schedulerService = new SchedulerService();
 
 // Scrape scheduling configuration
 const TELEGRAM_SCRAPE_SCHEDULE =
-  process.env.TELEGRAM_SCRAPE_SCHEDULE || "*/30 * * * * *"; // Every 30 minutes
+  process.env.TELEGRAM_SCRAPE_SCHEDULE || "*/30 * * * * *";
 const WEBSITE_SCRAPE_SCHEDULE =
-  process.env.WEBSITE_SCRAPE_SCHEDULE || "*/30 * * * * *"; // Every 2 hours
+  process.env.WEBSITE_SCRAPE_SCHEDULE || "*/30 * * * * *";
 
 // Middleware
 app.use(cors());
@@ -62,7 +65,8 @@ const fbAccountSwaggerPaths = fbAccountRoutes.getSwaggerPaths();
 const sourceTypeSwaggerPaths = sourceTypeRoutes.getSwaggerPaths();
 const sourceSwaggerPaths = sourceRoutes.getSwaggerPaths();
 const telegramSwaggerPaths = telegramRoutes.getSwaggerPaths();
-const postSwaggerPaths = postRoutes.getSwaggerPaths();
+const newsRadarSwaggerPaths = newsRadarRoutes.getSwaggerPaths();
+const newsRadarAISwaggerPaths = newsRadarAIRoutes.getSwaggerPaths();
 
 Object.assign(
   swaggerPaths,
@@ -85,14 +89,20 @@ Object.assign(
     ])
   ),
   Object.fromEntries(
-    Object.entries(telegramSwaggerPaths).map(([path, methods]) => [
-      `/api/v1/telegrams${path === "/" ? "" : path}`,
+    Object.entries(newsRadarSwaggerPaths).map(([path, methods]) => [
+      `/api/v1/news-radar${path === "/" ? "" : path}`,
       methods,
     ])
   ),
   Object.fromEntries(
-    Object.entries(postSwaggerPaths).map(([path, methods]) => [
-      `/api/v1/posts${path === "/" ? "" : path}`,
+    Object.entries(newsRadarAISwaggerPaths).map(([path, methods]) => [
+      `/api/v1/news-radar-ai${path === "/" ? "" : path}`,
+      methods,
+    ])
+  ),
+  Object.fromEntries(
+    Object.entries(telegramSwaggerPaths).map(([path, methods]) => [
+      `/api/v1/telegrams${path === "/" ? "" : path}`,
       methods,
     ])
   ),
@@ -140,8 +150,9 @@ app.use("/system", systemRoutes.getRouter());
 app.use("/api/v1/fb-accounts", fbAccountRoutes.getRouter());
 app.use("/api/v1/source-types", sourceTypeRoutes.getRouter());
 app.use("/api/v1/sources", sourceRoutes.getRouter());
+app.use("/api/v1/news-radar", newsRadarRoutes.getRouter());
+app.use("/api/v1/news-radar-ai", newsRadarAIRoutes.getRouter());
 app.use("/api/v1/telegrams", telegramRoutes.getRouter());
-app.use("/api/v1/posts", postRoutes.getRouter());
 
 // Error handling middleware
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
@@ -217,6 +228,7 @@ const stopScrapeSchedules = () => {
 const startServer = async () => {
   await testConnection();
   await initTelegram();
+  schedulerService.initializeJobs();
 
   // Start monitoring service
   monitorService.start();
@@ -258,9 +270,17 @@ const startServer = async () => {
   });
 
   // Graceful shutdown
+  process.on("SIGTERM", () => {
+    console.log("SIGTERM received, stopping scheduled jobs...");
+    schedulerService.stopAllJobs();
+    process.exit(0);
+  });
+
+  // Graceful shutdown
   process.on("SIGINT", () => {
     console.log("\n🛑 Shutting down gracefully...");
     monitorService.stop();
+    schedulerService.stopAllJobs();
     stopScrapeSchedules();
     pool.end();
     process.exit(0);
