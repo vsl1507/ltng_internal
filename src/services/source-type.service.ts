@@ -49,7 +49,7 @@ export class NewsSourceTypeService {
       "source_type_name",
       "source_type_slug",
       "created_at",
-      "update_at",
+      "updated_at",
     ];
     const sortColumn = validSortColumns.includes(sort_by)
       ? sort_by

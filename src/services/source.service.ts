@@ -18,7 +18,7 @@ export class NewsSourceService {
       source_is_trusted,
       source_country,
       is_deleted = false,
-      sort_by = "create_at",
+      sort_by = "created_at",
       sort_order = "DESC",
       page = 1,
       limit = 50,
@@ -79,12 +79,12 @@ export class NewsSourceService {
       "source_type_id",
       "source_is_active",
       "source_is_trusted",
-      "create_at",
-      "update_at",
+      "created_at",
+      "updated_at",
     ];
     const sortColumn = validSortColumns.includes(sort_by)
       ? `s.${sort_by}`
-      : "s.create_at";
+      : "s.created_at";
     query += ` ORDER BY ${sortColumn} ${sort_order}`;
 
     // Pagination

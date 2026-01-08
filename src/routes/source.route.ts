@@ -45,7 +45,7 @@ apiRouter.addRoute({
     {
       name: "sort_by",
       type: "string",
-      enum: ["source_id", "source_name", "source_identifier", "create_at"],
+      enum: ["source_id", "source_name", "source_identifier", "created_at"],
       description: "Sort field",
     },
     {

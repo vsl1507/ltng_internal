@@ -1,161 +1,126 @@
 import * as cron from "node-cron";
 import pool from "../config/mysql.config";
-import { ResultSetHeader } from "mysql2";
+import { PoolConnection, ResultSetHeader } from "mysql2/promise";
 
 export class SchedulerService {
   private jobs: Map<string, cron.ScheduledTask> = new Map();
 
-  // Initialize all scheduled jobs
   initializeJobs(): void {
     console.log("Initializing scheduled jobs...");
-
-    // // Run cleanup daily at 2 AM
-    // this.scheduleCleanupJob();
-
-    // Optional: Run cleanup check every 6 hours
     this.scheduleFrequentCleanup();
   }
 
-  // Main cleanup job - runs daily at 2 AM
-  private scheduleCleanupJob(): void {
-    // const job = cron.schedule("0 2 * * *", async () => {
-    //   console.log("Running scheduled cleanup job at", new Date().toISOString());
-    //   await this.cleanupOldDeletedRecords();
-    // });
-
-    const job = cron.schedule("40 16 * * *", async () => {
-      console.log("Running scheduled cleanup job at", new Date().toISOString());
-      await this.cleanupOldDeletedRecords();
-    });
-
-    this.jobs.set("dailyCleanup", job);
-    console.log("✓ Daily cleanup job scheduled (2 AM daily)");
-  }
-
-  // Optional: More frequent cleanup - every 6 hours
+  // Runs every minute (change if needed)
   private scheduleFrequentCleanup(): void {
-    console.log("Running frequent cleanup at");
-    const job = cron.schedule("* * * * *", async () => {
+    const job = cron.schedule("*/1 * * * *", async () => {
       console.log("Running frequent cleanup at", new Date().toISOString());
       await this.cleanupOldDeletedRecords();
     });
 
     this.jobs.set("frequentCleanup", job);
-    console.log("✓ Frequent cleanup job scheduled (every 6 hours)");
+    console.log("✓ Frequent cleanup job scheduled (every minute)");
   }
 
-  // Main cleanup logic
   private async cleanupOldDeletedRecords(): Promise<void> {
+    const connection = await pool.getConnection();
+
     try {
-      console.log("Starting cleanup of old deleted records...");
+      await connection.beginTransaction();
+      console.log("Starting cleanup transaction...");
 
-      // Cleanup news radar records
-      const radarCount = await this.cleanupNewsRadar();
-      console.log(`✓ Cleaned up ${radarCount} news radar records`);
+      const radarCount = await this.cleanupNewsRadar(connection);
+      console.log(`✓ Cleaned ${radarCount} radar-related rows`);
 
-      // Cleanup telegram records
-      const telegramCount = await this.cleanupTelegram();
-      console.log(`✓ Cleaned up ${telegramCount} telegram records`);
-
-      // Add more cleanup methods for other tables as needed
-
-      console.log("Cleanup completed successfully");
+      await connection.commit();
+      console.log("Cleanup committed successfully");
     } catch (error) {
-      console.error("Error during cleanup:", error);
+      await connection.rollback();
+      console.error("Cleanup rolled back:", error);
+    } finally {
+      connection.release();
     }
   }
 
-  // Cleanup news radar records deleted more than 7 days ago
-  private async cleanupNewsRadar(): Promise<number> {
+  /**
+   * Deletes radar data older than 7 days
+   * Order matters because of foreign keys
+   */
+  private async cleanupNewsRadar(conn: PoolConnection): Promise<number> {
     const queries = [
-      `DELETE FROM ltng_news_radar
-       AND updated_at < DATE_SUB(NOW(), INTERVAL 7 DAY)`,
-
-      `DELETE FROM ltng_news_radar_ai
-       AND updated_at < DATE_SUB(NOW(), INTERVAL 7 DAY)`,
-
-      `DELETE FROM ltng_news_tags
-       AND updated_at < DATE_SUB(NOW(), INTERVAL 7 DAY)`,
-
-      `DELETE FROM ltng_news_radar_ai_tags
-       AND updated_at < DATE_SUB(NOW(), INTERVAL 7 DAY)`,
-
-      `DELETE FROM ltng_news_media
-       AND updated_at < DATE_SUB(NOW(), INTERVAL 7 DAY)`,
-
-      `DELETE FROM ltng_news_post_deliveries
-       AND updated_at < DATE_SUB(NOW(), INTERVAL 7 DAY)`,
-
-      `DELETE FROM ltng_news_radar_media
-       AND updated_at < DATE_SUB(NOW(), INTERVAL 7 DAY)`,
+      // Delete child radar records first (records with radar_parent_id)
+      {
+        name: "child_radars",
+        query: `
+          DELETE c
+          FROM ltng_news_radar c
+          INNER JOIN ltng_news_radar p ON c.radar_parent_id = p.radar_id
+          WHERE p.radar_scraped_at 
+        `,
+      },
+      // Delete parent radar records older than 7 days
+      {
+        name: "parent_radars",
+        query: `
+          DELETE FROM ltng_news_radar
+          WHERE radar_scraped_at 
+            AND radar_parent_id IS NULL
+        `,
+      },
+      // Clean up any orphaned records (just in case)
+      {
+        name: "orphaned_radars",
+        query: `
+          DELETE FROM ltng_news_radar
+          WHERE radar_scraped_at 
+        `,
+      },
     ];
 
-    let totalAffected = 0;
-
-    for (const q of queries) {
-      const [result] = await pool.query<ResultSetHeader>(q);
-      totalAffected += result.affectedRows;
+    let total = 0;
+    for (const { name, query } of queries) {
+      try {
+        const [res] = await conn.query<ResultSetHeader>(query);
+        if (res.affectedRows > 0) {
+          console.log(`  - ${name}: ${res.affectedRows} rows deleted`);
+        }
+        total += res.affectedRows;
+      } catch (error: any) {
+        console.error(`Error executing ${name} cleanup query:`, error.message);
+        // Continue with other queries even if one fails
+      }
     }
 
-    return totalAffected;
+    return total;
   }
 
-  // Cleanup telegram records deleted more than 7 days ago
-  private async cleanupTelegram(): Promise<number> {
-    const query = `
-      DELETE FROM ltng_news_radar
-  AND updated_at < DATE_SUB(NOW(), INTERVAL 7 DAY);
-
-DELETE FROM ltng_news_radar_ai
-  AND updated_at < DATE_SUB(NOW(), INTERVAL 7 DAY);
-
-DELETE FROM ltng_news_tags
-  AND updated_at < DATE_SUB(NOW(), INTERVAL 7 DAY);
-
-DELETE FROM ltng_news_radar_ai_tags
-  AND updated_at < DATE_SUB(NOW(), INTERVAL 7 DAY);
-
-DELETE FROM ltng_news_media
-  AND updated_at < DATE_SUB(NOW(), INTERVAL 7 DAY);
-
-DELETE FROM ltng_news_post_deliveries
-  AND updated_at < DATE_SUB(NOW(), INTERVAL 7 DAY);
-
-DELETE FROM ltng_news_radar_media
-  AND updated_at < DATE_SUB(NOW(), INTERVAL 7 DAY);
-    `;
-
+  /**
+   * Optional: Cleanup AI-related tables if they exist
+   * This method can be called separately if the AI tables have different structure
+   */
+  private async cleanupNewsRadarAI(conn: PoolConnection): Promise<number> {
+    // First, check if the AI tables exist and have the correct columns
     try {
-      const [result] = await pool.query<ResultSetHeader>(query);
-      return result.affectedRows;
-    } catch (error) {
-      console.error("Error cleaning up telegram:", error);
+      const [columns]: any = await conn.query(`
+        SELECT COLUMN_NAME 
+        FROM INFORMATION_SCHEMA.COLUMNS 
+        WHERE TABLE_SCHEMA = DATABASE() 
+          AND TABLE_NAME = 'ltng_news_radar_ai'
+      `);
+
+      const columnNames = columns.map((col: any) => col.COLUMN_NAME);
+      console.log("Available columns in ltng_news_radar_ai:", columnNames);
+
+      // Based on actual columns, construct appropriate cleanup queries
+      // Example: if the linking column is different
+      // const queries = [...];
+
+      return 0; // Placeholder
+    } catch (error: any) {
+      console.error("AI table cleanup skipped:", error.message);
       return 0;
     }
   }
 
-  // Manual cleanup trigger (can be called via API endpoint)
-  async runManualCleanup(): Promise<{
-    success: boolean;
-    radarCount: number;
-    telegramCount: number;
-  }> {
-    try {
-      const radarCount = await this.cleanupNewsRadar();
-      const telegramCount = await this.cleanupTelegram();
-
-      return {
-        success: true,
-        radarCount,
-        telegramCount,
-      };
-    } catch (error) {
-      console.error("Error in manual cleanup:", error);
-      throw error;
-    }
-  }
-
-  // Stop all scheduled jobs
   stopAllJobs(): void {
     this.jobs.forEach((job, name) => {
       job.stop();
@@ -164,13 +129,11 @@ DELETE FROM ltng_news_radar_media
     this.jobs.clear();
   }
 
-  // Get status of all jobs
   getJobsStatus(): Array<{ name: string; running: boolean }> {
-    const status: Array<{ name: string; running: boolean }> = [];
-    this.jobs.forEach((job, name) => {
-      status.push({ name, running: job.getStatus() === "scheduled" });
-    });
-    return status;
+    return Array.from(this.jobs.entries()).map(([name, job]) => ({
+      name,
+      running: job.getStatus() === "scheduled",
+    }));
   }
 }
 

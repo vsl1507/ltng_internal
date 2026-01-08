@@ -210,12 +210,12 @@ const baseOptions = {
             description: "Description of the source type",
             example: "News sources from Facebook pages",
           },
-          create_at: {
+          created_at: {
             type: "string",
             format: "date-time",
             description: "Creation timestamp",
           },
-          update_at: {
+          updated_at: {
             type: "string",
             format: "date-time",
             description: "Last update timestamp",

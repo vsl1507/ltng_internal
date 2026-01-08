@@ -135,6 +135,13 @@ export class RadarAIService {
   }
 
   /**
+   * Fetch all news radar ai
+   */
+  // async getAllRadarAI = ():Promise =>{
+
+  // }
+
+  /**
    * Process a single article by its ID
    */
   async runByArticleId(articleId: number): Promise<ProcessStoryResult> {

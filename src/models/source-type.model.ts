@@ -3,7 +3,7 @@ export interface NewsSourceType {
   source_type_name: string;
   source_type_slug: string;
   source_type_description?: string;
-  create_at?: Date;
+  created_at?: Date;
   update_at?: Date;
   is_deleted?: boolean;
   created_by?: number;
