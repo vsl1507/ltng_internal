@@ -7,8 +7,8 @@ export interface NewsSource {
   source_is_active?: boolean;
   source_is_trusted?: boolean;
   source_country?: string;
-  create_at?: Date;
-  update_at?: Date;
+  created_at?: Date;
+  updated_at?: Date;
   is_deleted?: boolean;
   created_by?: number;
   updated_by?: number;
