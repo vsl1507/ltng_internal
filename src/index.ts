@@ -14,6 +14,7 @@ import sourceRoutes from "./routes/source.route";
 import newsRadarAIRoutes from "./routes/news-radar-ai.route";
 import newsRadarRoutes from "./routes/news-radar.route";
 import telegramRoutes from "./routes/telegram.route";
+import categoryRoutes from "./routes/category.route";
 import { generateSwaggerSpec } from "./config/swagger";
 import { boostrapTelegram } from "./routes/bot.route";
 import { MonitorService } from "./services/monitor.service";
@@ -67,6 +68,7 @@ const sourceSwaggerPaths = sourceRoutes.getSwaggerPaths();
 const telegramSwaggerPaths = telegramRoutes.getSwaggerPaths();
 const newsRadarSwaggerPaths = newsRadarRoutes.getSwaggerPaths();
 const newsRadarAISwaggerPaths = newsRadarAIRoutes.getSwaggerPaths();
+const categorySwaggerPaths = categoryRoutes.getSwaggerPaths();
 
 Object.assign(
   swaggerPaths,
@@ -91,6 +93,12 @@ Object.assign(
   Object.fromEntries(
     Object.entries(newsRadarSwaggerPaths).map(([path, methods]) => [
       `/api/v1/news-radar${path === "/" ? "" : path}`,
+      methods,
+    ])
+  ),
+  Object.fromEntries(
+    Object.entries(categorySwaggerPaths).map(([path, methods]) => [
+      `/api/v1/categories${path === "/" ? "" : path}`,
       methods,
     ])
   ),
@@ -151,6 +159,7 @@ app.use("/api/v1/fb-accounts", fbAccountRoutes.getRouter());
 app.use("/api/v1/source-types", sourceTypeRoutes.getRouter());
 app.use("/api/v1/sources", sourceRoutes.getRouter());
 app.use("/api/v1/news-radar", newsRadarRoutes.getRouter());
+app.use("/api/v1/categories", categoryRoutes.getRouter());
 app.use("/api/v1/news-radar-ai", newsRadarAIRoutes.getRouter());
 app.use("/api/v1/telegrams", telegramRoutes.getRouter());
 

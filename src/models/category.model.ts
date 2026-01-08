@@ -35,6 +35,7 @@ export interface CategoryFilters {
   language?: "en" | "kh";
   sort_by?: string;
   sort_order?: "ASC" | "DESC";
+  is_deleted?: boolean;
   page?: number;
   limit?: number;
 }

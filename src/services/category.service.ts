@@ -7,6 +7,12 @@ import {
   OllamaCategoryTagResult,
 } from "../types/category.type";
 import { slugify } from "../utils/helpers";
+import {
+  Category,
+  CategoryFilters,
+  PaginatedResponse,
+} from "../models/category.model";
+import { ResultSetHeader, RowDataPacket } from "mysql2";
 
 export class CategoryService {
   private config: ClassificationConfig = {
@@ -99,6 +105,7 @@ export class CategoryService {
         categoryId = await this.createCategory(
           aiResult.category.en,
           aiResult.category.kh,
+          "Category Description",
           userId
         );
         isNewCategory = true;
@@ -158,13 +165,14 @@ export class CategoryService {
   /**
    * Find existing category by name (fuzzy match on slug)
    */
-  private async findCategoryByName(
+  async findCategoryByName(
     nameEn: string,
     nameKh?: string
   ): Promise<{
     category_id: number;
     category_name_en: string;
     category_name_kh: string;
+    description?: string;
   } | null> {
     const slug = slugify(nameEn);
 
@@ -212,10 +220,11 @@ export class CategoryService {
   /**
    * Create new category
    */
-  private async createCategory(
+  async createCategory(
     nameEn: string,
     nameKh: string,
-    userId: number | null
+    description?: string,
+    userId?: number | null
   ): Promise<number> {
     const slug = slugify(nameEn);
 
@@ -229,9 +238,9 @@ export class CategoryService {
 
     const [result]: any = await pool.query(
       `INSERT INTO ltng_news_categories
-       (category_name_en, category_name_kh, category_slug, created_by)
-       VALUES (?, ?, ?, ?)`,
-      [nameEn, nameKh || nameEn, finalSlug, userId]
+       (category_name_en, category_name_kh, category_slug, category_description, created_by)
+       VALUES (?, ?, ?, ?, ?)`,
+      [nameEn, nameKh || nameEn, description, finalSlug, userId]
     );
 
     console.log(`✅ Created category: ${nameEn} (ID: ${result.insertId})`);
@@ -917,5 +926,260 @@ ${content.substring(0, 2000)}
       console.error("❌ Ollama error:", err.message);
       throw err;
     }
+  }
+
+  async getAllCategories(
+    filters: CategoryFilters
+  ): Promise<PaginatedResponse<Category>> {
+    const {
+      search = "",
+      is_deleted = false,
+      sort_by = "updated_at",
+      sort_order = "DESC",
+      page = 1,
+      limit = 50,
+    } = filters;
+
+    let query = "SELECT * FROM ltng_news_categories WHERE 1=1";
+    const params: any[] = [];
+
+    // Exclude deleted by default
+    query += " AND is_deleted = ?";
+    params.push(is_deleted);
+
+    // Search filter
+    if (search) {
+      query +=
+        " AND (category_name_en LIKE ? OR category_name_kh LIKE ? OR category_slug LIKE ?)";
+      const searchPattern = `%${search}%`;
+      params.push(searchPattern, searchPattern, searchPattern);
+    }
+
+    // Count total records
+    const countQuery = query.replace("SELECT *", "SELECT COUNT(*) as total");
+    const [countResult] = await pool.query<RowDataPacket[]>(countQuery, params);
+    const total = countResult[0].total;
+
+    // Sorting
+    const validSortColumns = [
+      "category_id",
+      "category_name_en",
+      "category_name_kh",
+      "category_slug",
+      "created_at",
+      "updated_at",
+    ];
+    const sortColumn = validSortColumns.includes(sort_by)
+      ? sort_by
+      : "updated_at";
+    query += ` ORDER BY ${sortColumn} ${sort_order}`;
+
+    // Pagination
+    const offset = (page - 1) * limit;
+    query += " LIMIT ? OFFSET ?";
+    params.push(limit, offset);
+
+    const [rows] = await pool.query<RowDataPacket[]>(query, params);
+
+    return {
+      success: true,
+      data: rows as Category[],
+      pagination: {
+        total,
+        page,
+        limit,
+        total_pages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  /**
+   * Get category by ID
+   */
+  async getCategoryById(id: number): Promise<Category | null> {
+    const [rows] = await pool.query<RowDataPacket[]>(
+      "SELECT * FROM ltng_news_categories WHERE category_id = ? AND is_deleted = FALSE",
+      [id]
+    );
+    return rows.length > 0 ? (rows[0] as Category) : null;
+  }
+
+  /**
+   * Update category
+   */
+  async updateCategory(
+    id: number,
+    categoryData: Partial<Category>,
+    userId: number | null
+  ): Promise<boolean> {
+    const fields: string[] = [];
+    const values: any[] = [];
+
+    if (categoryData.category_name_en !== undefined) {
+      fields.push("category_name_en = ?");
+      values.push(categoryData.category_name_en);
+    }
+    if (categoryData.category_name_kh !== undefined) {
+      fields.push("category_name_kh = ?");
+      values.push(categoryData.category_name_kh);
+    }
+    if (categoryData.category_description !== undefined) {
+      fields.push("category_description = ?");
+      values.push(categoryData.category_description);
+    }
+
+    // Update slug if name changed
+    if (categoryData.category_name_en !== undefined) {
+      const newSlug = slugify(categoryData.category_name_en);
+      let finalSlug = newSlug;
+      let counter = 1;
+
+      // Check if slug already exists for a different category
+      while (true) {
+        const [existing]: any = await pool.query(
+          `SELECT category_id FROM ltng_news_categories 
+         WHERE category_slug = ? AND category_id != ? AND is_deleted = 0`,
+          [finalSlug, id]
+        );
+
+        if (existing.length === 0) break;
+        finalSlug = `${newSlug}-${counter}`;
+        counter++;
+      }
+
+      fields.push("category_slug = ?");
+      values.push(finalSlug);
+    }
+
+    // Add updated_by if userId provided
+    if (userId !== undefined) {
+      fields.push("updated_by = ?");
+      values.push(userId);
+    }
+
+    if (fields.length === 0) return false;
+
+    values.push(id);
+    const query = `UPDATE ltng_news_categories SET ${fields.join(
+      ", "
+    )} WHERE category_id = ? AND is_deleted = FALSE`;
+
+    const [result] = await pool.query<ResultSetHeader>(query, values);
+    return result.affectedRows > 0;
+  }
+
+  /**
+   * Delete category (soft delete)
+   */
+  async deleteCategory(id: number, userId?: number): Promise<boolean> {
+    const fields = ["is_deleted = TRUE"];
+    const values: any[] = [];
+
+    if (userId !== undefined) {
+      fields.push("updated_by = ?");
+      values.push(userId);
+    }
+
+    values.push(id);
+    const [result] = await pool.query<ResultSetHeader>(
+      `UPDATE ltng_news_categories SET ${fields.join(
+        ", "
+      )} WHERE category_id = ? AND is_deleted = FALSE`,
+      values
+    );
+    return result.affectedRows > 0;
+  }
+
+  /**
+   * Hard delete category (permanent)
+   */
+  async hardDeleteCategory(id: number): Promise<boolean> {
+    const [result] = await pool.query<ResultSetHeader>(
+      "DELETE FROM ltng_news_categories WHERE category_id = ?",
+      [id]
+    );
+    return result.affectedRows > 0;
+  }
+
+  /**
+   * Restore deleted category
+   */
+  async restoreCategory(id: number, userId?: number): Promise<boolean> {
+    const fields = ["is_deleted = FALSE"];
+    const values: any[] = [];
+
+    if (userId !== undefined) {
+      fields.push("updated_by = ?");
+      values.push(userId);
+    }
+
+    values.push(id);
+    const [result] = await pool.query<ResultSetHeader>(
+      `UPDATE ltng_news_categories SET ${fields.join(
+        ", "
+      )} WHERE category_id = ? AND is_deleted = TRUE`,
+      values
+    );
+    return result.affectedRows > 0;
+  }
+
+  /**
+   * Bulk delete categories
+   */
+  async bulkDeleteCategories(
+    ids: number[],
+    hard: boolean = false,
+    userId?: number
+  ): Promise<number> {
+    if (ids.length === 0) return 0;
+
+    const placeholders = ids.map(() => "?").join(",");
+
+    if (hard) {
+      const [result] = await pool.query<ResultSetHeader>(
+        `DELETE FROM ltng_news_categories WHERE category_id IN (${placeholders})`,
+        ids
+      );
+      return result.affectedRows;
+    } else {
+      const fields = ["is_deleted = TRUE"];
+      const values: any[] = [];
+
+      if (userId !== undefined) {
+        fields.push("updated_by = ?");
+        values.push(userId);
+      }
+
+      values.push(...ids);
+      const [result] = await pool.query<ResultSetHeader>(
+        `UPDATE ltng_news_categories SET ${fields.join(
+          ", "
+        )} WHERE category_id IN (${placeholders}) AND is_deleted = FALSE`,
+        values
+      );
+      return result.affectedRows;
+    }
+  }
+
+  /**
+   * Get category statistics
+   */
+  async getStatistics(): Promise<{
+    total: number;
+    active: number;
+    deleted: number;
+    with_keywords: number;
+  }> {
+    const [stats]: any = await pool.query(`
+    SELECT 
+      COUNT(*) as total,
+      SUM(CASE WHEN is_deleted = 0 THEN 1 ELSE 0 END) as active,
+      SUM(CASE WHEN is_deleted = 1 THEN 1 ELSE 0 END) as deleted,
+      COUNT(DISTINCT kw.category_id) as with_keywords
+    FROM ltng_news_categories c
+    LEFT JOIN ltng_news_category_keywords kw ON c.category_id = kw.category_id AND kw.is_deleted = 0
+  `);
+
+    return stats[0];
   }
 }
