@@ -387,13 +387,12 @@ export class WebsiteScrapeService {
       const $ = cheerio.load(response.data);
       const articleLinks: string[] = [];
 
-      console.log("articleLinks: ", articleLinks);
-
       // Extract article URLs from listing
       $(config.website.listing_selector!).each((i, element) => {
         let href = $(element).attr("href");
 
         if (!href) return;
+        console.log(`   Found link: ${href}`);
 
         // Make absolute URL
         if (href.startsWith("/")) {

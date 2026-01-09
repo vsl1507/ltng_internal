@@ -4,23 +4,23 @@ import ApiRouter from "../utils/api-router";
 const apiRouter = new ApiRouter();
 
 // Manually trigger cleanup
-apiRouter.addRoute({
-  method: "post",
-  path: "/trigger",
-  handler: (req, res) => CleanupController.triggerCleanup(req, res),
-  summary: "Manually trigger cleanup of old deleted records",
-  tags: ["Cleanup"],
-  responses: {
-    200: {
-      description: "Cleanup completed successfully",
-      schema: "SingleResponse",
-    },
-    500: {
-      description: "Server error",
-      schema: "ErrorResponse",
-    },
-  },
-});
+// apiRouter.addRoute({
+//   method: "post",
+//   path: "/trigger",
+//   handler: (req, res) => CleanupController.triggerCleanup(req, res),
+//   summary: "Manually trigger cleanup of old deleted records",
+//   tags: ["Cleanup"],
+//   responses: {
+//     200: {
+//       description: "Cleanup completed successfully",
+//       schema: "SingleResponse",
+//     },
+//     500: {
+//       description: "Server error",
+//       schema: "ErrorResponse",
+//     },
+//   },
+// });
 
 // Get jobs status
 apiRouter.addRoute({

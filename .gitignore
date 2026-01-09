@@ -1,6 +1,9 @@
 # Node modules
 node_modules/
 
+# Storage images
+storage/media/
+
 # Environment variables
 .env
 .env.local

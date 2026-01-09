@@ -1,13 +1,12 @@
-import pool from "../config/mysql.config";
+import pool from "../../config/mysql.config";
 import { ResultSetHeader, RowDataPacket } from "mysql2";
 import {
   NewsSourceType,
   NewsSourceTypeFilters,
   PaginatedResponse,
-} from "../models/source-type.model";
+} from "../../models/source-type.model";
 
 export class NewsSourceTypeService {
-  // Get all source types with filters and pagination
   async getAllSourceTypes(
     filters: NewsSourceTypeFilters
   ): Promise<PaginatedResponse<NewsSourceType>> {
@@ -43,7 +42,6 @@ export class NewsSourceTypeService {
     const total = countResult[0].total;
 
     // Sorting
-
     const validSortColumns = [
       "source_type_id",
       "source_type_name",

@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import newsSourceTypeService from "../services/source-type.service";
+import newsSourceTypeService from "../services/v1/source-type.service";
 import {
   NewsSourceType,
   NewsSourceTypeFilters,
@@ -7,7 +7,6 @@ import {
 import ResponseHandler from "../utils/response-handler";
 
 export class SourceTypeController {
-  // Get all source types with filters and pagination
   async getAllSourceTypes(req: Request, res: Response): Promise<void> {
     try {
       const filters: NewsSourceTypeFilters = {

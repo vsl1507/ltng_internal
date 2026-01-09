@@ -10,22 +10,22 @@ export class CleanupController {
   }
 
   // Manually trigger cleanup
-  async triggerCleanup(req: Request, res: Response): Promise<void> {
-    try {
-      console.log("Manual cleanup triggered by user");
+  // async triggerCleanup(req: Request, res: Response): Promise<void> {
+  //   try {
+  //     console.log("Manual cleanup triggered by user");
 
-      const result = await this.scheduleService.runManualCleanup();
+  //     const result = await this.scheduleService.runManualCleanup();
 
-      ResponseHandler.success(
-        res,
-        result,
-        `Cleanup completed: ${result.radarCount} news radar and ${result.telegramCount} telegram records deleted`
-      );
-    } catch (error) {
-      console.error("Error triggering manual cleanup:", error);
-      ResponseHandler.internalError(res, "Failed to run cleanup");
-    }
-  }
+  //     ResponseHandler.success(
+  //       res,
+  //       result,
+  //       `Cleanup completed: ${result.radarCount} news radar and ${result.telegramCount} telegram records deleted`
+  //     );
+  //   } catch (error) {
+  //     console.error("Error triggering manual cleanup:", error);
+  //     ResponseHandler.internalError(res, "Failed to run cleanup");
+  //   }
+  // }
 
   // Get cleanup job status
   async getJobsStatus(req: Request, res: Response): Promise<void> {

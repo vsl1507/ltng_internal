@@ -53,12 +53,7 @@ app.set("views", "./dist/views");
 app.set("views", path.join(__dirname, "views"));
 
 // Generate Swagger documentation from routes
-const swaggerPaths = {
-  // "/api/fb-accounts": {},
-  // "/api/fb-accounts/{id}": {},
-  // "/api/fb-accounts/bulk/update-status": {},
-  // "/api/fb-accounts/bulk/delete": {},
-};
+const swaggerPaths = {};
 
 // Get swagger paths from ApiRouter
 const systemSwaggerPaths = systemRoutes.getSwaggerPaths();
@@ -235,65 +230,114 @@ const stopScrapeSchedules = () => {
 
 // Start server with database connection test
 const startServer = async () => {
-  await testConnection();
-  await initTelegram();
-  schedulerService.initializeJobs();
-
-  // Start monitoring service
-  monitorService.start();
-
-  // Run initial scrape on startup
-  console.log("🚀 Running initial scrapes on startup...");
   try {
-    await scrapeService.scrapeFromSource();
-    console.log("✅ Initial Telegram scrape completed");
+    console.log("🔧 Initializing server...");
+
+    // Test database connection
+    console.log("📊 Testing database connection...");
+    await testConnection();
+    console.log("✅ Database connected successfully");
+
+    // Initialize Telegram
+    console.log("📱 Initializing Telegram...");
+    try {
+      await initTelegram();
+      console.log("✅ Telegram initialized successfully");
+    } catch (error) {
+      console.error("⚠️ Telegram initialization failed (non-critical):", error);
+    }
+
+    // Initialize scheduler
+    console.log("⏰ Initializing scheduler jobs...");
+    // schedulerService.initializeJobs();
+    console.log("✅ Scheduler initialized successfully");
+
+    // Start monitoring service
+    console.log("📡 Starting monitoring service...");
+    monitorService.start();
+    console.log("✅ Monitoring service started");
+
+    // Start the Express server FIRST
+    const server = app.listen(PORT, () => {
+      console.log("\n" + "=".repeat(60));
+      console.log(`🚀 Server is running successfully!`);
+      console.log("=".repeat(60));
+      console.log(`📍 Local:        http://localhost:${PORT}`);
+      console.log(`📍 Network:      http://${HOST}:${PORT}`);
+      console.log(`📚 API Docs:     http://localhost:${PORT}/api-docs`);
+      console.log(`🏥 Health Check: http://localhost:${PORT}/`);
+      console.log("=".repeat(60) + "\n");
+    });
+
+    // Handle server errors
+    server.on("error", (error: any) => {
+      if (error.code === "EADDRINUSE") {
+        console.error(`❌ Port ${PORT} is already in use!`);
+        console.log(`💡 Try: lsof -ti:${PORT} | xargs kill -9`);
+      } else {
+        console.error("❌ Server error:", error);
+      }
+      process.exit(1);
+    });
+
+    // Run initial scrapes AFTER server starts (non-blocking)
+    console.log("🚀 Running initial scrapes in background...");
+
+    // Run scrapes in background without blocking
+    setImmediate(async () => {
+      try {
+        await scrapeService.scrapeFromSource();
+        console.log("✅ Initial Telegram scrape completed");
+      } catch (error) {
+        console.error("❌ Initial Telegram scrape failed:", error);
+      }
+
+      try {
+        await websiteScrapeService.scrapeFromSource();
+        console.log("✅ Initial Website scrape completed");
+      } catch (error) {
+        console.error("❌ Initial Website scrape failed:", error);
+      }
+    });
+
+    // Start scheduled scraping
+    // startScrapeSchedules();
+
+    // Graceful shutdown handlers
+    const shutdown = (signal: string) => {
+      console.log(`\n🛑 ${signal} received, shutting down gracefully...`);
+
+      server.close(() => {
+        console.log("✅ HTTP server closed");
+        monitorService.stop();
+        schedulerService.stopAllJobs();
+        stopScrapeSchedules();
+
+        pool.end().then(() => {
+          console.log("✅ Database connections closed");
+          console.log("👋 Goodbye!");
+          process.exit(0);
+        });
+      });
+
+      // Force shutdown after 10 seconds
+      setTimeout(() => {
+        console.error("⚠️ Forced shutdown after timeout");
+        process.exit(1);
+      }, 10000);
+    };
+
+    process.on("SIGTERM", () => shutdown("SIGTERM"));
+    process.on("SIGINT", () => shutdown("SIGINT"));
   } catch (error) {
-    console.error("❌ Initial Telegram scrape failed:", error);
+    console.error("❌ Failed to start server:", error);
+    console.error("Stack trace:", error instanceof Error ? error.stack : "");
+    process.exit(1);
   }
-
-  try {
-    await websiteScrapeService.scrapeFromSource();
-    console.log("✅ Initial Website scrape completed");
-  } catch (error) {
-    console.error("❌ Initial Website scrape failed:", error);
-  }
-
-  // Start scheduled scraping
-  startScrapeSchedules();
-
-  app.listen(PORT, () => {
-    console.log(`🚀 Server is running on local:  http://localhost:${PORT}`);
-    console.log(
-      `📚 API Documentation on local: http://localhost:${PORT}/api-docs`
-    );
-    console.log(
-      `📊 API Endpoints on local: http://localhost:${PORT}/api/fb-accounts`
-    );
-    console.log(`🚀 Server is running on local:  http://${HOST}:${PORT}`);
-    console.log(
-      `📚 API Documentation on local: http://${HOST}:${PORT}/api-docs`
-    );
-    console.log(
-      `📊 API Endpoints on local: http://${HOST}:${PORT}/api/fb-accounts`
-    );
-  });
-
-  // Graceful shutdown
-  process.on("SIGTERM", () => {
-    console.log("SIGTERM received, stopping scheduled jobs...");
-    schedulerService.stopAllJobs();
-    process.exit(0);
-  });
-
-  // Graceful shutdown
-  process.on("SIGINT", () => {
-    console.log("\n🛑 Shutting down gracefully...");
-    monitorService.stop();
-    schedulerService.stopAllJobs();
-    stopScrapeSchedules();
-    pool.end();
-    process.exit(0);
-  });
 };
 
-startServer();
+// Start the server
+startServer().catch((error) => {
+  console.error("❌ Fatal error during startup:", error);
+  process.exit(1);
+});
