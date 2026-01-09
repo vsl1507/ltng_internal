@@ -1,6 +1,9 @@
 import axios, { AxiosInstance } from "axios";
 import pool from "../config/mysql.config";
 import { CategoryService } from "./category.service";
+import { NewsRadarAI, NewsRadarAIFilters } from "../models/news-radar-ai.model";
+import { PaginatedResponse } from "../models/fb-account.model";
+import { RowDataPacket } from "mysql2";
 
 // ========== CONSTANTS ==========
 const THRESHOLDS = {
@@ -137,9 +140,183 @@ export class RadarAIService {
   /**
    * Fetch all news radar ai
    */
-  // async getAllRadarAI = ():Promise =>{
+  async getAllNewsRadarAI(filters: NewsRadarAIFilters): Promise<{
+    data: NewsRadarAI[];
+    pagination: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+    };
+  }> {
+    const {
+      search = "",
+      sort_by = "created_at",
+      sort_order = "DESC",
+      page = 1,
+      limit = 50,
+    } = filters;
 
-  // }
+    const offset = (page - 1) * limit;
+
+    // Build WHERE clause
+    let whereClause = "WHERE nrai.is_deleted = 0";
+    const queryParams: any[] = [];
+
+    if (search) {
+      whereClause += ` AND (
+        nrai.radar_ai_title_en LIKE ? OR 
+        nrai.radar_ai_title_kh LIKE ? OR 
+        nrai.radar_ai_content_en LIKE ? OR 
+        nrai.radar_ai_content_kh LIKE ? OR 
+        nr.radar_title LIKE ?
+      )`;
+      const searchPattern = `%${search}%`;
+      queryParams.push(
+        searchPattern,
+        searchPattern,
+        searchPattern,
+        searchPattern,
+        searchPattern
+      );
+    }
+
+    // Valid sort columns
+    const validSortColumns = [
+      "created_at",
+      "radar_ai_title_en",
+      "radar_ai_published_at",
+      "radar_ai_story_number",
+      "radar_scraped_at",
+    ];
+    const sortColumn = validSortColumns.includes(sort_by)
+      ? sort_by
+      : "created_at";
+    const sortOrder = sort_order === "ASC" ? "ASC" : "DESC";
+
+    // Get total count
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM ltng_news_radar_ai nrai
+      LEFT JOIN ltng_news_radar nr ON nrai.radar_id = nr.radar_id
+      ${whereClause}
+    `;
+
+    const [countResult] = await pool.query<RowDataPacket[]>(
+      countQuery,
+      queryParams
+    );
+    const total = countResult[0].total;
+
+    // Get paginated data with related information
+    const dataQuery = `
+      SELECT 
+        nrai.radar_ai_id,
+        nrai.radar_ai_category_id,
+        nrai.radar_ai_story_number,
+        nrai.radar_ai_title_en,
+        nrai.radar_ai_content_en,
+        nrai.radar_ai_title_kh,
+        nrai.radar_ai_content_kh,
+        nrai.radar_ai_generated_from,
+        nrai.radar_ai_version,
+        nrai.radar_ai_is_published,
+        nrai.radar_ai_published_at,
+        nrai.radar_ai_status,
+        nrai.created_at,
+        nrai.updated_at,
+        nrai.created_by,
+        nrai.updated_by,
+        nc.category_name_en,
+        nc.category_name_kh,
+        nc.category_slug,
+        GROUP_CONCAT(
+          DISTINCT CONCAT(nt.tag_id, ':', nt.tag_name_en, '|', nt.tag_name_kh) 
+          SEPARATOR '||'
+        ) as tags
+      FROM ltng_news_radar_ai nrai
+      LEFT JOIN ltng_news_categories nc ON nrai.radar_ai_category_id = nc.category_id
+      LEFT JOIN ltng_news_radar_ai_tags nrat ON nrai.radar_ai_id = nrat.radar_ai_id
+      LEFT JOIN ltng_news_tags nt ON nrat.tag_id = nt.tag_id AND nt.is_deleted = 0
+      ${whereClause}
+      GROUP BY nrai.radar_ai_id
+      ORDER BY nrai.${sortColumn} ${sortOrder}
+      LIMIT ? OFFSET ?
+    `;
+
+    queryParams.push(limit, offset);
+
+    const [rows] = await pool.query<RowDataPacket[]>(dataQuery, queryParams);
+
+    // Format the data
+    const formattedData = rows.map((row) => {
+      // Parse generated_from JSON
+      let generatedFrom = null;
+      if (row.radar_ai_generated_from) {
+        try {
+          generatedFrom =
+            typeof row.radar_ai_generated_from === "string"
+              ? JSON.parse(row.radar_ai_generated_from)
+              : row.radar_ai_generated_from;
+        } catch (e) {
+          console.warn("Failed to parse radar_ai_generated_from:", e);
+        }
+      }
+
+      return {
+        radar_ai_id: row.radar_ai_id,
+        story_number: row.radar_ai_story_number,
+        title: {
+          en: row.radar_ai_title_en,
+          kh: row.radar_ai_title_kh,
+        },
+        content: {
+          en: row.radar_ai_content_en,
+          kh: row.radar_ai_content_kh,
+        },
+        category: row.category_name_en
+          ? {
+              id: row.radar_ai_category_id,
+              name_en: row.category_name_en,
+              name_kh: row.category_name_kh,
+              slug: row.category_slug,
+            }
+          : null,
+        tags: row.tags
+          ? row.tags.split("||").map((tag: string) => {
+              const [idAndEn, kh] = tag.split("|");
+              const [id, en] = idAndEn.split(":");
+              return {
+                tag_id: parseInt(id),
+                name_en: en,
+                name_kh: kh,
+              };
+            })
+          : [],
+        generated_from: generatedFrom,
+        version: row.radar_ai_version,
+        is_published: Boolean(row.radar_ai_is_published),
+        published_at: row.radar_ai_published_at,
+        status: row.radar_ai_status,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        created_by: row.created_by,
+        updated_by: row.updated_by,
+      };
+    });
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      data: formattedData,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
+    };
+  }
 
   /**
    * Process a single article by its ID

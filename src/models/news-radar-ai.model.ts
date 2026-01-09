@@ -1,26 +1,39 @@
-import pool from "../config/mysql.config";
-import { ResultSetHeader, RowDataPacket } from "mysql2";
-
 export interface NewsRadarAI {
-  // radar_ai_id?: number;
-  // radar_ai_category_id: number;
-  // radar_ai_story_number?: number;
-  // radar_ai_title_en: string;
-  // radar_ai_content_en: string;
-  // radar_ai_title_kh: string;
-  // radar_ai_content_kh: string;
-  // radar_ai_generated_from?: any;
-  // radar_ai_version?: number;
-  // radar_ai_is_published?: boolean;
-  // radar_ai_published_at?: Date;
-  // radar_ai_status?: boolean;
-  // created_at?: Date;
-  // updated_at?: Date;
-  // is_deleted?: boolean;
-  // created_by?: number;
-  // updated_by?: number;
-  // __v?: number;
-  radar_id: number;
+  radar_ai_id: number;
+  story_number: number | null;
+  title: BilingualText;
+  content: BilingualText;
+  category: NewsCategory | null;
+  tags: NewsTag[];
+  generated_from: any;
+  version: number;
+  is_published: boolean;
+  published_at: Date | null;
+  status: number;
+  created_at?: Date;
+  updated_at?: Date;
+  is_deleted?: boolean;
+  created_by?: number;
+  updated_by?: number;
+  __v?: number;
+}
+
+export interface BilingualText {
+  en: string;
+  kh: string;
+}
+
+export interface NewsCategory {
+  id: number;
+  name_en: string;
+  name_kh: string;
+  slug: string;
+}
+
+export interface NewsTag {
+  tag_id: number;
+  name_en: string;
+  name_kh: string;
 }
 export interface NewsRadarAIGenerate {
   radar_id: number;

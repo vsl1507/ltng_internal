@@ -53,7 +53,9 @@ app.set("views", "./dist/views");
 app.set("views", path.join(__dirname, "views"));
 
 // Generate Swagger documentation from routes
-const swaggerPaths = {};
+const swaggerPaths = {
+  "api/news-radar-ai": {},
+};
 
 // Get swagger paths from ApiRouter
 const systemSwaggerPaths = systemRoutes.getSwaggerPaths();
