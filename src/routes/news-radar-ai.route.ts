@@ -59,6 +59,37 @@ apiRouter.addRoute({
   },
 });
 
+// Get a ai radar
+apiRouter.addRoute({
+  method: "get",
+  path: "/:id",
+  handler: (req, res) => newsRadarAIController.getNewsRadarAIById(req, res),
+  summary: "Get news radar ai by ID",
+  tags: ["News Radar AI"],
+  pathParams: [
+    {
+      name: "id",
+      type: "integer",
+      required: true,
+      description: "News radar ai ID",
+    },
+  ],
+  responses: {
+    200: {
+      description: "News radar ai details",
+      schema: "SingleResponse",
+    },
+    404: {
+      description: "News radar not found",
+      schema: "ErrorResponse",
+    },
+    500: {
+      description: "Server error",
+      schema: "ErrorResponse",
+    },
+  },
+});
+
 // Create new AI radar
 apiRouter.addRoute({
   method: "post",

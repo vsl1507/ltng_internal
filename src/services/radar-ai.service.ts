@@ -10,7 +10,7 @@ const THRESHOLDS = {
   SIMILARITY: 80,
   UPDATE: 60,
   TRUNCATE_TEXT: 1500,
-  CONTENT_PREVIEW: 1000,
+  CONTENT_PREVIEW: 3000,
 } as const;
 
 const OLLAMA_CONFIG = {
@@ -140,15 +140,9 @@ export class RadarAIService {
   /**
    * Fetch all news radar ai
    */
-  async getAllNewsRadarAI(filters: NewsRadarAIFilters): Promise<{
-    data: NewsRadarAI[];
-    pagination: {
-      page: number;
-      limit: number;
-      total: number;
-      totalPages: number;
-    };
-  }> {
+  async getAllNewsRadarAI(
+    filters: NewsRadarAIFilters
+  ): Promise<PaginatedResponse<NewsRadarAI>> {
     const {
       search = "",
       sort_by = "created_at",
@@ -198,7 +192,6 @@ export class RadarAIService {
     const countQuery = `
       SELECT COUNT(*) as total
       FROM ltng_news_radar_ai nrai
-      LEFT JOIN ltng_news_radar nr ON nrai.radar_id = nr.radar_id
       ${whereClause}
     `;
 
@@ -265,16 +258,12 @@ export class RadarAIService {
 
       return {
         radar_ai_id: row.radar_ai_id,
-        story_number: row.radar_ai_story_number,
-        title: {
-          en: row.radar_ai_title_en,
-          kh: row.radar_ai_title_kh,
-        },
-        content: {
-          en: row.radar_ai_content_en,
-          kh: row.radar_ai_content_kh,
-        },
-        category: row.category_name_en
+        radar_ai_story_number: row.radar_ai_story_number,
+        radar_ai_title_en: row.radar_ai_title_en,
+        radar_ai_title_kh: row.radar_ai_title_kh,
+        radar_ai_content_en: row.radar_ai_content_en,
+        radar_ai_content_kh: row.radar_ai_content_kh,
+        radar_ai_category_id: row.category_name_en
           ? {
               id: row.radar_ai_category_id,
               name_en: row.category_name_en,
@@ -293,11 +282,11 @@ export class RadarAIService {
               };
             })
           : [],
-        generated_from: generatedFrom,
-        version: row.radar_ai_version,
-        is_published: Boolean(row.radar_ai_is_published),
-        published_at: row.radar_ai_published_at,
-        status: row.radar_ai_status,
+        radar_ai_generated_from: generatedFrom,
+        radar_ai_version: row.radar_ai_version,
+        radar_ai_is_published: Boolean(row.radar_ai_is_published),
+        radar_ai_published_at: row.radar_ai_published_at,
+        radar_ai_status: row.radar_ai_status,
         created_at: row.created_at,
         updated_at: row.updated_at,
         created_by: row.created_by,
@@ -305,17 +294,114 @@ export class RadarAIService {
       };
     });
 
-    const totalPages = Math.ceil(total / limit);
+    const total_pages = Math.ceil(total / limit);
 
     return {
+      success: true,
       data: formattedData,
       pagination: {
+        total,
         page,
         limit,
-        total,
-        totalPages,
+        total_pages,
       },
     };
+  }
+
+  /**
+   *
+   */
+  async getNewsRadarAIbyId(id: number): Promise<NewsRadarAI | null> {
+    const [rows] = await pool.query<RowDataPacket[]>(
+      `SELECT 
+      nrai.radar_ai_id,
+      nrai.radar_ai_category_id,
+      nrai.radar_ai_story_number,
+      nrai.radar_ai_title_en,
+      nrai.radar_ai_content_en,
+      nrai.radar_ai_title_kh,
+      nrai.radar_ai_content_kh,
+      nrai.radar_ai_generated_from,
+      nrai.radar_ai_version,
+      nrai.radar_ai_is_published,
+      nrai.radar_ai_published_at,
+      nrai.radar_ai_status,
+      nrai.created_at,
+      nrai.updated_at,
+      nrai.created_by,
+      nrai.updated_by,
+      nc.category_name_en,
+      nc.category_name_kh,
+      nc.category_slug,
+      GROUP_CONCAT(
+        DISTINCT CONCAT(nt.tag_id, ':', nt.tag_name_en, '|', nt.tag_name_kh) 
+        SEPARATOR '||'
+      ) as tags
+    FROM ltng_news_radar_ai nrai
+    LEFT JOIN ltng_news_categories nc ON nrai.radar_ai_category_id = nc.category_id
+    LEFT JOIN ltng_news_radar_ai_tags nrat ON nrai.radar_ai_id = nrat.radar_ai_id
+    LEFT JOIN ltng_news_tags nt ON nrat.tag_id = nt.tag_id AND nt.is_deleted = 0
+    WHERE nrai.radar_ai_id = ? AND nrai.is_deleted = 0
+    GROUP BY nrai.radar_ai_id`,
+      [id]
+    );
+
+    if (!rows.length) return null;
+
+    const row = rows[0];
+
+    let generatedFrom = null;
+    if (row.radar_ai_generated_from) {
+      try {
+        generatedFrom =
+          typeof row.radar_ai_generated_from === "string"
+            ? JSON.parse(row.radar_ai_generated_from)
+            : row.radar_ai_generated_from;
+      } catch (e) {
+        console.warn("Failed to parse radar_ai_generated_from:", e);
+      }
+    }
+
+    const formatted: NewsRadarAI = {
+      radar_ai_id: row.radar_ai_id,
+      radar_ai_story_number: row.radar_ai_story_number,
+      radar_ai_title_en: row.radar_ai_title_en,
+      radar_ai_title_kh: row.radar_ai_title_kh,
+      radar_ai_content_en: row.radar_ai_content_en,
+      radar_ai_content_kh: row.radar_ai_content_kh,
+      radar_ai_category_id: row.category_name_en
+        ? {
+            id: row.radar_ai_category_id,
+            name_en: row.category_name_en,
+            name_kh: row.category_name_kh,
+            slug: row.category_slug,
+          }
+        : null,
+      tags: row.tags
+        ? row.tags
+            .split("||")
+            .map((tag: string) => {
+              const [idAndEn, kh] = tag.split("|");
+              if (!idAndEn) return null;
+              const [id, en] = idAndEn.split(":");
+              return id && en && kh
+                ? { tag_id: parseInt(id), name_en: en, name_kh: kh }
+                : null;
+            })
+            .filter(Boolean)
+        : [],
+      radar_ai_generated_from: generatedFrom,
+      radar_ai_version: row.radar_ai_version,
+      radar_ai_is_published: Boolean(row.radar_ai_is_published),
+      radar_ai_published_at: row.radar_ai_published_at,
+      radar_ai_status: row.radar_ai_status,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      created_by: row.created_by,
+      updated_by: row.updated_by,
+    };
+
+    return formatted;
   }
 
   /**
@@ -892,7 +978,7 @@ OUTPUT RULES:
 Return ONLY valid JSON FORMAT:
 {
   "title_en": "Concise factual English title (max 100 chars)",
-  "content_en": "Single base news article in English (200–500 words)",
+  "content_en": "Single base news article in English (200–300 words)",
   "title_kh": "Optional Khmer title or null",
   "content_kh": "Optional Khmer content or null"
 }`;

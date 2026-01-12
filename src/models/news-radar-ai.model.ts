@@ -1,15 +1,17 @@
 export interface NewsRadarAI {
   radar_ai_id: number;
-  story_number: number | null;
-  title: BilingualText;
-  content: BilingualText;
-  category: NewsCategory | null;
+  radar_ai_story_number: number | null;
+  radar_ai_title_en: BilingualText;
+  radar_ai_title_kh: BilingualText;
+  radar_ai_content_en: BilingualText;
+  radar_ai_content_kh: BilingualText;
+  radar_ai_category_id: NewsCategory | null;
   tags: NewsTag[];
-  generated_from: any;
-  version: number;
-  is_published: boolean;
-  published_at: Date | null;
-  status: number;
+  radar_ai_generated_from: any;
+  radar_ai_version: number;
+  radar_ai_is_published: boolean;
+  radar_ai_published_at: Date | null;
+  radar_ai_status: boolean;
   created_at?: Date;
   updated_at?: Date;
   is_deleted?: boolean;

@@ -34,6 +34,33 @@ export class NewsRadarAIController {
       ResponseHandler.internalError(res, "Failed to fetch accounts");
     }
   }
+  //Get a nes radar
+  async getNewsRadarAIById(req: Request, res: Response): Promise<void> {
+    try {
+      const id = parseInt(req.params.id);
+
+      if (isNaN(id)) {
+        ResponseHandler.badRequest(res, "Invalid radar ai ID");
+        return;
+      }
+
+      const radar = await this.radarAIService.getNewsRadarAIbyId(id);
+
+      if (!radar) {
+        ResponseHandler.notFound(res, "News radar ai not found");
+        return;
+      }
+
+      ResponseHandler.success(
+        res,
+        radar,
+        "News radar ai retrieved successfully"
+      );
+    } catch (error) {
+      console.error("Error fetching news radar ai:", error);
+      ResponseHandler.internalError(res, "Failed to fetch news radar ai");
+    }
+  }
 
   async createRadarAI(req: Request, res: Response): Promise<any> {
     try {
