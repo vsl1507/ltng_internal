@@ -4,7 +4,9 @@ import { NewsSource, NewsSourceFilters } from "../models/source.model";
 import ResponseHandler from "../utils/response-handler";
 
 export class SourceController {
-  // Get all sources with filters and pagination
+  /**
+   *  Get all sources with filters and pagination
+   */
   async getAllSources(req: Request, res: Response): Promise<void> {
     try {
       const filters: NewsSourceFilters = {
@@ -46,7 +48,9 @@ export class SourceController {
     }
   }
 
-  // Get source by ID
+  /**
+   *  Get source by ID
+   */
   async getSourceById(req: Request, res: Response): Promise<void> {
     try {
       const id = parseInt(req.params.id);
@@ -70,7 +74,9 @@ export class SourceController {
     }
   }
 
-  // Get source by identifier
+  /**
+   *  Get source by identifier
+   */
   async getSourceByIdentifier(req: Request, res: Response): Promise<void> {
     try {
       const { identifier } = req.params;
@@ -89,37 +95,9 @@ export class SourceController {
     }
   }
 
-  // Get sources by type
-  async getSourcesByType(req: Request, res: Response): Promise<void> {
-    try {
-      const sourceTypeId = parseInt(req.params.typeId);
-      const page = parseInt(req.query.page as string) || 1;
-      const limit = parseInt(req.query.limit as string) || 50;
-
-      if (isNaN(sourceTypeId)) {
-        ResponseHandler.badRequest(res, "Invalid source type ID");
-        return;
-      }
-
-      const result = await newsSourceService.getSourcesByType(
-        sourceTypeId,
-        page,
-        limit
-      );
-
-      ResponseHandler.successWithPagination(
-        res,
-        result.data,
-        result.pagination,
-        "Sources retrieved successfully"
-      );
-    } catch (error) {
-      console.error("Error fetching sources by type:", error);
-      ResponseHandler.internalError(res, "Failed to fetch sources");
-    }
-  }
-
-  // Create new source
+  /**
+   *  Create source
+   */
   async createSource(req: Request, res: Response): Promise<void> {
     try {
       const sourceData: NewsSource = req.body;
@@ -147,16 +125,14 @@ export class SourceController {
         });
       }
 
-      // Validate country code format (2 characters)
-      if (
-        sourceData.source_country &&
-        !/^[A-Z]{2}$/.test(sourceData.source_country)
-      ) {
-        validationErrors.push({
-          field: "source_country",
-          message:
-            "Country code must be 2 uppercase letters (ISO 3166-1 alpha-2)",
-        });
+      // Validate country (20 characters)
+      if (sourceData.source_country) {
+        if (sourceData.source_country.length > 20) {
+          validationErrors.push({
+            field: "source_country",
+            message: "Country name must be less than 20 letters",
+          });
+        }
       }
 
       if (validationErrors.length > 0) {
@@ -193,7 +169,9 @@ export class SourceController {
     }
   }
 
-  // Update source
+  /**
+   *  Update source
+   */
   async updateSource(req: Request, res: Response): Promise<void> {
     try {
       const id = parseInt(req.params.id);
@@ -206,19 +184,17 @@ export class SourceController {
       const sourceData: Partial<NewsSource> = req.body;
       const userId = req.body.user_id;
 
-      // Validate country code format if provided
-      if (
-        sourceData.source_country &&
-        !/^[A-Z]{2}$/.test(sourceData.source_country)
-      ) {
-        ResponseHandler.validationError(res, [
-          {
-            field: "source_country",
-            message:
-              "Country code must be 2 uppercase letters (ISO 3166-1 alpha-2)",
-          },
-        ]);
-        return;
+      // Validate country name format if provided
+      if (sourceData.source_country) {
+        if (sourceData.source_country.length > 20) {
+          ResponseHandler.validationError(res, [
+            {
+              field: "source_country",
+              message: "Country name must be less than 20 letters",
+            },
+          ]);
+          return;
+        }
       }
 
       // Check if source exists
@@ -274,11 +250,13 @@ export class SourceController {
     }
   }
 
-  // Delete source
+  /**
+   * Delete source by ID (Soft delete & Hard delete)
+   */
   async deleteSource(req: Request, res: Response): Promise<void> {
     try {
       const id = parseInt(req.params.id);
-      const hard = req.query.hard === "true";
+      const soft = req.query.soft === "true";
       const userId = req.body.user_id;
 
       if (isNaN(id)) {
@@ -288,10 +266,10 @@ export class SourceController {
 
       let deleted: boolean;
 
-      if (hard) {
-        deleted = await newsSourceService.hardDeleteSource(id);
-      } else {
+      if (soft) {
         deleted = await newsSourceService.softDeleteSource(id, userId);
+      } else {
+        deleted = await newsSourceService.hardDeleteSource(id);
       }
 
       if (!deleted) {
@@ -302,7 +280,7 @@ export class SourceController {
       ResponseHandler.success(
         res,
         null,
-        hard ? "Source permanently deleted" : "Source deleted successfully"
+        soft ? "Source deleted successfully" : "Source permanently deleted"
       );
     } catch (error) {
       console.error("Error deleting source:", error);
@@ -310,7 +288,9 @@ export class SourceController {
     }
   }
 
-  // Restore source
+  /**
+   * Restore soft delete source by ID
+   */
   async restoreSource(req: Request, res: Response): Promise<void> {
     try {
       const id = parseInt(req.params.id);
@@ -340,7 +320,9 @@ export class SourceController {
     }
   }
 
-  // Bulk update status
+  /**
+   * Bulk updatestatus source by ID
+   */
   async bulkUpdateStatus(req: Request, res: Response): Promise<void> {
     try {
       const { ids, source_is_active, source_is_trusted } = req.body;
@@ -371,7 +353,9 @@ export class SourceController {
     }
   }
 
-  // Bulk delete
+  /**
+   * Bulk delete source (Soft delete & Hard delete)
+   */
   async bulkDelete(req: Request, res: Response): Promise<void> {
     try {
       const { ids, soft = true } = req.body;
@@ -400,46 +384,6 @@ export class SourceController {
     } catch (error) {
       console.error("Error bulk deleting sources:", error);
       ResponseHandler.internalError(res, "Failed to delete sources");
-    }
-  }
-
-  // Get active sources
-  async getActiveSources(req: Request, res: Response): Promise<void> {
-    try {
-      const page = parseInt(req.query.page as string) || 1;
-      const limit = parseInt(req.query.limit as string) || 50;
-
-      const result = await newsSourceService.getActiveSources(page, limit);
-
-      ResponseHandler.successWithPagination(
-        res,
-        result.data,
-        result.pagination,
-        "Active sources retrieved successfully"
-      );
-    } catch (error) {
-      console.error("Error fetching active sources:", error);
-      ResponseHandler.internalError(res, "Failed to fetch active sources");
-    }
-  }
-
-  // Get trusted sources
-  async getTrustedSources(req: Request, res: Response): Promise<void> {
-    try {
-      const page = parseInt(req.query.page as string) || 1;
-      const limit = parseInt(req.query.limit as string) || 50;
-
-      const result = await newsSourceService.getTrustedSources(page, limit);
-
-      ResponseHandler.successWithPagination(
-        res,
-        result.data,
-        result.pagination,
-        "Trusted sources retrieved successfully"
-      );
-    } catch (error) {
-      console.error("Error fetching trusted sources:", error);
-      ResponseHandler.internalError(res, "Failed to fetch trusted sources");
     }
   }
 }

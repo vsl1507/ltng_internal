@@ -3,7 +3,9 @@ import SourceController from "../controllers/source.controller";
 
 const apiRouter = new ApiRouter();
 
-// Get all sources
+/**
+ *  Get all sources with filters and pagination
+ */
 apiRouter.addRoute({
   method: "get",
   path: "/",
@@ -64,11 +66,20 @@ apiRouter.addRoute({
     },
   ],
   responses: {
-    200: { description: "List of sources", schema: "PaginatedResponse" },
+    200: {
+      description: "List of sources with pagination",
+      schema: "PaginatedResponse",
+    },
+    500: {
+      description: "Server error",
+      schema: "ErrorResponse",
+    },
   },
 });
 
-// Get source by ID
+/**
+ *  Get source by ID
+ */
 apiRouter.addRoute({
   method: "get",
   path: "/:id",
@@ -79,17 +90,29 @@ apiRouter.addRoute({
     { name: "id", type: "integer", required: true, description: "Source ID" },
   ],
   responses: {
-    200: { description: "Source details", schema: "SingleResponse" },
-    404: { description: "Source not found", schema: "ErrorResponse" },
+    200: {
+      description: "Source details",
+      schema: "SingleResponse",
+    },
+    404: {
+      description: "Source type not found",
+      schema: "ErrorResponse",
+    },
+    500: {
+      description: "Server error",
+      schema: "ErrorResponse",
+    },
   },
 });
 
-// Get source by identifier
+/**
+ *  Get source by identifer
+ */
 apiRouter.addRoute({
   method: "get",
   path: "/identifier/:identifier",
   handler: (req, res) => SourceController.getSourceByIdentifier(req, res),
-  summary: "Get source by identifier",
+  summary: "Get news source by identifier",
   tags: ["News Sources"],
   pathParams: [
     {
@@ -102,66 +125,13 @@ apiRouter.addRoute({
   responses: {
     200: { description: "Source details", schema: "SingleResponse" },
     404: { description: "Source not found", schema: "ErrorResponse" },
+    500: { description: "Server error", schema: "ErrorResponse" },
   },
 });
 
-// Get sources by type
-apiRouter.addRoute({
-  method: "get",
-  path: "/type/:typeId",
-  handler: (req, res) => SourceController.getSourcesByType(req, res),
-  summary: "Get sources by type",
-  tags: ["News Sources"],
-  pathParams: [
-    {
-      name: "typeId",
-      type: "integer",
-      required: true,
-      description: "Source type ID",
-    },
-  ],
-  queryParams: [
-    { name: "page", type: "integer", default: 1 },
-    { name: "limit", type: "integer", default: 50 },
-  ],
-  responses: {
-    200: { description: "Sources list", schema: "PaginatedResponse" },
-  },
-});
-
-// Get active sources
-apiRouter.addRoute({
-  method: "get",
-  path: "/active/list",
-  handler: (req, res) => SourceController.getActiveSources(req, res),
-  summary: "Get all active sources",
-  tags: ["News Sources"],
-  queryParams: [
-    { name: "page", type: "integer", default: 1 },
-    { name: "limit", type: "integer", default: 50 },
-  ],
-  responses: {
-    200: { description: "Active sources", schema: "PaginatedResponse" },
-  },
-});
-
-// Get trusted sources
-apiRouter.addRoute({
-  method: "get",
-  path: "/trusted/list",
-  handler: (req, res) => SourceController.getTrustedSources(req, res),
-  summary: "Get all trusted sources",
-  tags: ["News Sources"],
-  queryParams: [
-    { name: "page", type: "integer", default: 1 },
-    { name: "limit", type: "integer", default: 50 },
-  ],
-  responses: {
-    200: { description: "Trusted sources", schema: "PaginatedResponse" },
-  },
-});
-
-// Create new source
+/**
+ * Create a source
+ */
 apiRouter.addRoute({
   method: "post",
   path: "/",
@@ -173,15 +143,11 @@ apiRouter.addRoute({
     schema: "NewsSource",
     example: {
       source_type_id: 1,
-      source_name: "CNN Breaking News",
-      source_identifier: "cnn_breaking",
-      source_config: {
-        api_key: "xxx",
-        refresh_interval: 300,
-      },
+      source_name: "KOh Santepheap Daily",
+      source_identifier: "https://kohsantepheapdaily.com.kh/",
       source_is_active: true,
       source_is_trusted: true,
-      source_country: "US",
+      source_country: "Cambodia",
       user_id: 1,
     },
   },
@@ -192,7 +158,9 @@ apiRouter.addRoute({
   },
 });
 
-// Update source
+/**
+ * Update a source by ID
+ */
 apiRouter.addRoute({
   method: "put",
   path: "/:id",
@@ -214,16 +182,19 @@ apiRouter.addRoute({
   responses: {
     200: { description: "Source updated", schema: "SingleResponse" },
     404: { description: "Source not found", schema: "ErrorResponse" },
+    500: { description: "Server error", schema: "ErrorResponse" },
   },
 });
 
-// Delete source
+/**
+ * Delete a source by ID
+ */
 apiRouter.addRoute({
   method: "delete",
   path: "/:id",
   handler: (req, res) => SourceController.deleteSource(req, res),
   summary: "Delete source",
-  description: "Soft delete by default. Use ?hard=true for permanent deletion",
+  description: "Soft delete by default. Use ?soft=false for permanent deletion",
   tags: ["News Sources"],
   pathParams: [
     { name: "id", type: "integer", required: true, description: "Source ID" },
@@ -239,10 +210,13 @@ apiRouter.addRoute({
   responses: {
     200: { description: "Source deleted", schema: "SuccessResponse" },
     404: { description: "Source not found", schema: "ErrorResponse" },
+    500: { description: "Server error", schema: "ErrorResponse" },
   },
 });
 
-// Restore source
+/**
+ * Restore source by ID
+ */
 apiRouter.addRoute({
   method: "post",
   path: "/:id/restore",
@@ -254,11 +228,14 @@ apiRouter.addRoute({
   ],
   responses: {
     200: { description: "Source restored", schema: "SingleResponse" },
+    500: { description: "Server error", schema: "ErrorResponse" },
     404: { description: "Source not found", schema: "ErrorResponse" },
   },
 });
 
-// Bulk update status
+/**
+ * Bulk update status source
+ */
 apiRouter.addRoute({
   method: "post",
   path: "/bulk/update-status",
@@ -277,10 +254,14 @@ apiRouter.addRoute({
   },
   responses: {
     200: { description: "Sources updated", schema: "BulkResponse" },
+    400: { description: "Validation error", schema: "ErrorResponse" },
+    500: { description: "Server error", schema: "ErrorResponse" },
   },
 });
 
-// Bulk delete
+/**
+ * Bulk delete source (Soft delete & Hard delete)
+ */
 apiRouter.addRoute({
   method: "post",
   path: "/bulk/delete",
@@ -298,6 +279,8 @@ apiRouter.addRoute({
   },
   responses: {
     200: { description: "Sources deleted", schema: "BulkResponse" },
+    400: { description: "Validation error", schema: "ErrorResponse" },
+    500: { description: "Server error", schema: "ErrorResponse" },
   },
 });
 

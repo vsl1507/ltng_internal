@@ -33,5 +33,5 @@ export interface PaginatedResponse<T> {
 
 export interface BulkDeleteRequest {
   ids: number[];
-  soft?: boolean; // true for soft delete, false for hard delete
+  soft?: boolean;
 }

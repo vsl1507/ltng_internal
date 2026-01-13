@@ -3,7 +3,7 @@ export interface NewsSource {
   source_type_id: number;
   source_name: string;
   source_identifier: string;
-  source_config?: Record<string, any> | string;
+  source_config: Record<string, any> | string;
   source_is_active?: boolean;
   source_is_trusted?: boolean;
   source_country?: string;
@@ -29,7 +29,6 @@ export interface NewsSourceFilters {
 }
 
 export interface PaginatedResponse<T> {
-  success: boolean;
   data: T[];
   pagination: {
     total: number;

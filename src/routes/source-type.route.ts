@@ -200,7 +200,7 @@ apiRouter.addRoute({
   path: "/:id",
   handler: (req, res) => SourceTypeController.deleteSourceType(req, res),
   summary: "Delete news source type",
-  description: "Soft delete by default. Use ?hard=true for permanent deletion",
+  description: "Soft delete by default. Use ?soft=false for permanent deletion",
   tags: ["News Source Types"],
   pathParams: [
     {
