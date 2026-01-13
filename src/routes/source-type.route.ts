@@ -3,7 +3,9 @@ import SourceTypeController from "../controllers/source-type.controller";
 
 const apiRouter = new ApiRouter();
 
-// Get all source types with filters and pagination
+/**
+ * Get all source types by filter with paginated response
+ */
 apiRouter.addRoute({
   method: "get",
   path: "/",
@@ -38,6 +40,7 @@ apiRouter.addRoute({
         "updated_at",
       ],
       description: "Sort field",
+      default: "created_at",
     },
     {
       name: "sort_order",
@@ -71,12 +74,14 @@ apiRouter.addRoute({
   },
 });
 
-// Get source type by ID
+/**
+ * Get source type by ID
+ */
 apiRouter.addRoute({
   method: "get",
   path: "/:id",
   handler: (req, res) => SourceTypeController.getSourceTypeById(req, res),
-  summary: "Get source type by ID",
+  summary: "Get news source type by ID",
   tags: ["News Source Types"],
   pathParams: [
     {
@@ -102,12 +107,14 @@ apiRouter.addRoute({
   },
 });
 
-// Create new source type
+/**
+ * Create a source type
+ */
 apiRouter.addRoute({
   method: "post",
   path: "/",
   handler: (req, res) => SourceTypeController.createSourceType(req, res),
-  summary: "Create new source type",
+  summary: "Create a new source type",
   tags: ["News Source Types"],
   requestBody: {
     required: true,
@@ -139,12 +146,14 @@ apiRouter.addRoute({
   },
 });
 
-// Update source type
+/**
+ * Udpate source type by ID
+ */
 apiRouter.addRoute({
-  method: "put",
+  method: "patch",
   path: "/:id",
   handler: (req, res) => SourceTypeController.updateSourceType(req, res),
-  summary: "Update source type",
+  summary: "Update news source type",
   tags: ["News Source Types"],
   pathParams: [
     {
@@ -183,12 +192,14 @@ apiRouter.addRoute({
   },
 });
 
-// Delete source type
+/**
+ * Delete source type by ID
+ */
 apiRouter.addRoute({
   method: "delete",
   path: "/:id",
   handler: (req, res) => SourceTypeController.deleteSourceType(req, res),
-  summary: "Delete source type",
+  summary: "Delete news source type",
   description: "Soft delete by default. Use ?hard=true for permanent deletion",
   tags: ["News Source Types"],
   pathParams: [
@@ -201,10 +212,10 @@ apiRouter.addRoute({
   ],
   queryParams: [
     {
-      name: "hard",
+      name: "soft",
       type: "boolean",
       description: "Permanent deletion",
-      default: false,
+      default: true,
     },
   ],
   responses: {
@@ -223,7 +234,9 @@ apiRouter.addRoute({
   },
 });
 
-// Restore source type
+/**
+ * Restore source type by ID
+ */
 apiRouter.addRoute({
   method: "post",
   path: "/:id/restore",
@@ -254,7 +267,9 @@ apiRouter.addRoute({
   },
 });
 
-// Bulk delete source types
+/**
+ * Bulk delete source type (Soft delete & Hard delete)
+ */
 apiRouter.addRoute({
   method: "post",
   path: "/bulk/delete",

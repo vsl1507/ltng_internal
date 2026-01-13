@@ -7,6 +7,9 @@ import {
 } from "../../models/source-type.model";
 
 export class NewsSourceTypeService {
+  /**
+   * Get all source types
+   */
   async getAllSourceTypes(
     filters: NewsSourceTypeFilters
   ): Promise<PaginatedResponse<NewsSourceType>> {
@@ -31,6 +34,7 @@ export class NewsSourceTypeService {
       params.push(searchPattern, searchPattern, searchPattern);
     }
 
+    // Slug filter
     if (slug) {
       query += " AND source_type_slug = ?";
       params.push(slug);
@@ -40,6 +44,7 @@ export class NewsSourceTypeService {
     const countQuery = query.replace("SELECT *", "SELECT COUNT(*) as total");
     const [countResult] = await pool.query<RowDataPacket[]>(countQuery, params);
     const total = countResult[0].total;
+    const total_pages = Math.ceil(total / limit);
 
     // Sorting
     const validSortColumns = [
@@ -62,18 +67,19 @@ export class NewsSourceTypeService {
     const [rows] = await pool.query<RowDataPacket[]>(query, params);
 
     return {
-      success: true,
       data: rows as NewsSourceType[],
       pagination: {
         total,
         page,
         limit,
-        total_pages: Math.ceil(total / limit),
+        total_pages,
       },
     };
   }
 
-  // Get source type by ID
+  /**
+   * Get source type by ID
+   */
   async getSourceTypeById(id: number): Promise<NewsSourceType | null> {
     const [rows] = await pool.query<RowDataPacket[]>(
       "SELECT * FROM ltng_news_source_types WHERE source_type_id = ? AND is_deleted = FALSE",
@@ -82,37 +88,9 @@ export class NewsSourceTypeService {
     return rows.length > 0 ? (rows[0] as NewsSourceType) : null;
   }
 
-  // Check if name exists
-  async checkNameExists(name: string, excludeId?: number): Promise<boolean> {
-    let query =
-      "SELECT COUNT(*) as count FROM ltng_news_source_types WHERE source_type_name = ? AND is_deleted = FALSE";
-    const params: any[] = [name];
-
-    if (excludeId) {
-      query += " AND source_type_id != ?";
-      params.push(excludeId);
-    }
-
-    const [rows] = await pool.query<RowDataPacket[]>(query, params);
-    return rows[0].count > 0;
-  }
-
-  // Check if slug exists
-  async checkSlugExists(slug: string, excludeId?: number): Promise<boolean> {
-    let query =
-      "SELECT COUNT(*) as count FROM ltng_news_source_types WHERE source_type_slug = ? AND is_deleted = FALSE";
-    const params: any[] = [slug];
-
-    if (excludeId) {
-      query += " AND source_type_id != ?";
-      params.push(excludeId);
-    }
-
-    const [rows] = await pool.query<RowDataPacket[]>(query, params);
-    return rows[0].count > 0;
-  }
-
-  // Create new source type
+  /**
+   * Create source type
+   */
   async createSourceType(
     sourceType: NewsSourceType,
     userId?: number
@@ -132,7 +110,9 @@ export class NewsSourceTypeService {
     return { source_type_id: result.insertId, ...sourceType };
   }
 
-  // Update source type
+  /**
+   * Update source type by ID
+   */
   async updateSourceType(
     id: number,
     sourceType: Partial<NewsSourceType>,
@@ -158,21 +138,27 @@ export class NewsSourceTypeService {
       values.push(userId);
     }
 
-    // Increment version
+    if (fields.length === 0) {
+      return false;
+    }
+
     fields.push("__v = __v + 1");
-
-    if (fields.length === 0) return false;
-
     values.push(id);
-    const query = `UPDATE ltng_news_source_types SET ${fields.join(
-      ", "
-    )} WHERE source_type_id = ? AND is_deleted = FALSE`;
+
+    const query = `
+    UPDATE ltng_news_source_types
+    SET ${fields.join(", ")}
+    WHERE source_type_id = ? AND is_deleted = FALSE
+  `;
 
     const [result] = await pool.query<ResultSetHeader>(query, values);
+
     return result.affectedRows > 0;
   }
 
-  // Soft delete source type
+  /**
+   * Soft delete source type by id
+   */
   async softDeleteSourceType(id: number, userId?: number): Promise<boolean> {
     const fields = ["is_deleted = TRUE", "__v = __v + 1"];
     const values: any[] = [];
@@ -188,10 +174,13 @@ export class NewsSourceTypeService {
     )} WHERE source_type_id = ?`;
 
     const [result] = await pool.query<ResultSetHeader>(query, values);
+
     return result.affectedRows > 0;
   }
 
-  // Hard delete source type
+  /**
+   * Hard delete source type by id
+   */
   async hardDeleteSourceType(id: number): Promise<boolean> {
     const [result] = await pool.query<ResultSetHeader>(
       "DELETE FROM ltng_news_source_types WHERE source_type_id = ?",
@@ -200,7 +189,9 @@ export class NewsSourceTypeService {
     return result.affectedRows > 0;
   }
 
-  // Restore soft deleted source type
+  /**
+   * Restore soft delete source type by id
+   */
   async restoreSourceType(id: number, userId?: number): Promise<boolean> {
     const fields = ["is_deleted = FALSE", "__v = __v + 1"];
     const values: any[] = [];
@@ -216,10 +207,13 @@ export class NewsSourceTypeService {
     )} WHERE source_type_id = ?`;
 
     const [result] = await pool.query<ResultSetHeader>(query, values);
+
     return result.affectedRows > 0;
   }
 
-  // Bulk soft delete
+  /**
+   * Bulk soft delete multi source types
+   */
   async bulkSoftDelete(ids: number[], userId?: number): Promise<number> {
     if (ids.length === 0) return 0;
 
@@ -242,7 +236,9 @@ export class NewsSourceTypeService {
     return result.affectedRows;
   }
 
-  // Bulk hard delete
+  /**
+   * Bulk hard delete multi source types
+   */
   async bulkHardDelete(ids: number[]): Promise<number> {
     if (ids.length === 0) return 0;
 
@@ -252,6 +248,42 @@ export class NewsSourceTypeService {
       ids
     );
     return result.affectedRows;
+  }
+
+  /*=========== TOOLS =========*/
+
+  /**
+   *  Check if nmae type source  exsit
+   */
+  async checkNameExists(name: string, excludeId?: number): Promise<boolean> {
+    let query =
+      "SELECT COUNT(*) as count FROM ltng_news_source_types WHERE source_type_name = ? AND is_deleted = FALSE";
+    const params: any[] = [name];
+
+    if (excludeId) {
+      query += " AND source_type_id != ?";
+      params.push(excludeId);
+    }
+
+    const [rows] = await pool.query<RowDataPacket[]>(query, params);
+    return rows[0].count > 0;
+  }
+
+  /**
+   *  Check if slug type source  exsit
+   */
+  async checkSlugExists(slug: string, excludeId?: number): Promise<boolean> {
+    let query =
+      "SELECT COUNT(*) as count FROM ltng_news_source_types WHERE source_type_slug = ? AND is_deleted = FALSE";
+    const params: any[] = [slug];
+
+    if (excludeId) {
+      query += " AND source_type_id != ?";
+      params.push(excludeId);
+    }
+
+    const [rows] = await pool.query<RowDataPacket[]>(query, params);
+    return rows[0].count > 0;
   }
 }
 

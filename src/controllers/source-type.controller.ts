@@ -5,14 +5,18 @@ import {
   NewsSourceTypeFilters,
 } from "../models/source-type.model";
 import ResponseHandler from "../utils/response-handler";
+import { generateSlug, isValidSlug } from "../utils/slug.utils";
 
 export class SourceTypeController {
+  /**
+   * Get all source types
+   */
   async getAllSourceTypes(req: Request, res: Response): Promise<void> {
     try {
       const filters: NewsSourceTypeFilters = {
         search: req.query.search as string,
         slug: req.query.slug as string,
-        is_deleted: req.query.is_deleted === "true",
+        is_deleted: req.query.is_deleted === "false",
         sort_by: req.query.sort_by as string,
         sort_order: (req.query.sort_order as "ASC" | "DESC") || "DESC",
         page: parseInt(req.query.page as string) || 1,
@@ -33,7 +37,9 @@ export class SourceTypeController {
     }
   }
 
-  // Get source type by ID
+  /**
+   * Get source type by ID
+   */
   async getSourceTypeById(req: Request, res: Response): Promise<void> {
     try {
       const id = parseInt(req.params.id);
@@ -61,11 +67,13 @@ export class SourceTypeController {
     }
   }
 
-  // Create new source type
+  /**
+   * Create source type
+   */
   async createSourceType(req: Request, res: Response): Promise<void> {
     try {
       const sourceTypeData: NewsSourceType = req.body;
-      const userId = req.body.user_id; // Assuming user_id comes from auth middleware
+      const userId = req.body.user_id;
 
       // Validation
       const validationErrors = [];
@@ -76,18 +84,21 @@ export class SourceTypeController {
           message: "Source type name is required",
         });
       }
+
+      // Auto-generate slug from name if not provided
+      if (!sourceTypeData.source_type_slug && sourceTypeData.source_type_name) {
+        sourceTypeData.source_type_slug = generateSlug(
+          sourceTypeData.source_type_name
+        );
+      }
+
+      // Validate slug if provided or generated
       if (!sourceTypeData.source_type_slug) {
         validationErrors.push({
           field: "source_type_slug",
           message: "Source type slug is required",
         });
-      }
-
-      // Validate slug format (lowercase, hyphens, no spaces)
-      if (
-        sourceTypeData.source_type_slug &&
-        !/^[a-z0-9-]+$/.test(sourceTypeData.source_type_slug)
-      ) {
+      } else if (!isValidSlug(sourceTypeData.source_type_slug)) {
         validationErrors.push({
           field: "source_type_slug",
           message:
@@ -133,7 +144,9 @@ export class SourceTypeController {
     }
   }
 
-  // Update source type
+  /**
+   * Update source type
+   */
   async updateSourceType(req: Request, res: Response): Promise<void> {
     try {
       const id = parseInt(req.params.id);
@@ -144,7 +157,7 @@ export class SourceTypeController {
       }
 
       const sourceTypeData: Partial<NewsSourceType> = req.body;
-      const userId = req.body.user_id; // Assuming user_id comes from auth middleware
+      const userId = req.body.user_id;
 
       // Validate slug format if provided
       if (
@@ -208,6 +221,7 @@ export class SourceTypeController {
       const updatedSourceType = await newsSourceTypeService.getSourceTypeById(
         id
       );
+
       ResponseHandler.success(
         res,
         updatedSourceType,
@@ -219,11 +233,14 @@ export class SourceTypeController {
     }
   }
 
-  // Delete source type (soft delete by default)
+  /**
+   * Delete source type
+   * Soft delete & Hard delete
+   */
   async deleteSourceType(req: Request, res: Response): Promise<void> {
     try {
       const id = parseInt(req.params.id);
-      const hard = req.query.hard === "true";
+      const soft = req.query.soft === "true";
       const userId = req.body.user_id;
 
       if (isNaN(id)) {
@@ -233,10 +250,10 @@ export class SourceTypeController {
 
       let deleted: boolean;
 
-      if (hard) {
-        deleted = await newsSourceTypeService.hardDeleteSourceType(id);
-      } else {
+      if (soft) {
         deleted = await newsSourceTypeService.softDeleteSourceType(id, userId);
+      } else {
+        deleted = await newsSourceTypeService.hardDeleteSourceType(id);
       }
 
       if (!deleted) {
@@ -247,9 +264,9 @@ export class SourceTypeController {
       ResponseHandler.success(
         res,
         null,
-        hard
-          ? "Source type permanently deleted"
-          : "Source type deleted successfully"
+        soft
+          ? "Source type deleted successfully"
+          : "Source type permanently deleted"
       );
     } catch (error) {
       console.error("Error deleting source type:", error);
@@ -257,7 +274,9 @@ export class SourceTypeController {
     }
   }
 
-  // Restore soft deleted source type
+  /**
+   * Restore soft delete source type by id
+   */
   async restoreSourceType(req: Request, res: Response): Promise<void> {
     try {
       const id = parseInt(req.params.id);
@@ -292,7 +311,10 @@ export class SourceTypeController {
     }
   }
 
-  // Bulk delete source types
+  /**
+   * Bulk delete source types
+   * Soft delete & Hard delete
+   */
   async bulkDelete(req: Request, res: Response): Promise<void> {
     try {
       const { ids, soft = true } = req.body;
