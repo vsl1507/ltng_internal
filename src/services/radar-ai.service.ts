@@ -1057,4 +1057,4 @@ Return ONLY valid JSON (no markdown):
   }
 }
 
-export const radarAIService = new RadarAIService();
+export default new RadarAIService();

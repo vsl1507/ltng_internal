@@ -13,11 +13,11 @@ import {
   stripEmojis,
   sourceScrape,
 } from "../utils/scrape.utils";
-import { radarAIService } from "./radar-ai.service";
+import radarAiService from "./radar-ai.service";
 
 // ========== CONSTANTS ==========
 const TITLE_MAX_LENGTH = 200;
-const TITLE_SHORT_LENGTH = 100;
+const TITLE_MIN_LENGTH = 100;
 
 // ========== INTERFACES ==========
 interface ScrapeResult {
@@ -35,12 +35,6 @@ interface ScrapeResult {
 
 // ========== SERVICE ==========
 export class ScrapeService {
-  private radarAIService;
-
-  constructor() {
-    this.radarAIService = radarAIService;
-  }
-
   /**
    * Main scraping orchestrator
    */
@@ -202,7 +196,7 @@ export class ScrapeService {
           }
 
           // Process with AI
-          // await this.processWithAI(articleId);
+          await this.processWithAI(articleId);
         }
       } catch (error) {
         console.error(`❌ Failed to process message ${message.id}:`, error);
@@ -316,7 +310,7 @@ export class ScrapeService {
    */
   private async processWithAI(articleId: number): Promise<void> {
     try {
-      const content_ai = await this.radarAIService.runByArticleId(articleId);
+      const content_ai = await radarAiService.runByArticleId(articleId);
       if (content_ai) {
         console.log("✅ AI processing complete:", content_ai);
       }
@@ -478,8 +472,8 @@ export class ScrapeService {
     }
 
     const content = (processedText || originalText).trim();
-    return content.length > TITLE_SHORT_LENGTH
-      ? content.substring(0, TITLE_SHORT_LENGTH - 3) + "..."
+    return content.length > TITLE_MIN_LENGTH
+      ? content.substring(0, TITLE_MIN_LENGTH - 3) + "..."
       : content || "Untitled";
   }
 
@@ -543,3 +537,5 @@ export class ScrapeService {
     };
   }
 }
+
+export default new ScrapeService();

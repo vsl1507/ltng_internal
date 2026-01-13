@@ -2,6 +2,7 @@
 
 import axios from "axios";
 import pool from "../config/mysql.config";
+import { OLLAMA_LOCAL_MODEL, OLLAMA_URL } from "../types/ollama.type";
 
 // ========== CONSTANTS ==========
 export const SIMILARITY_THRESHOLD = 0.65;
@@ -9,8 +10,8 @@ export const STORY_LOOKBACK_DAYS = 7;
 export const EMBEDDING_TEXT_LIMIT = 2000;
 export const EMBEDDING_TIMEOUT = 10000;
 
-const OLLAMA_URL = process.env.OLLAMA_API_URL || "http://localhost:11434";
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "nomic-embed-text";
+// const OLLAMA_URL = process.env.OLLAMA_API_URL || "http://localhost:11434";
+// const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "nomic-embed-text";
 const OLLAMA_API_KEY = process.env.OLLAMA_API_KEY || "";
 const OLLAMA_TIMEOUT = 20000;
 const TEXT_COMPARISON_LIMIT = 3000;
@@ -86,7 +87,7 @@ export async function calculateTextSimilarity(
     const res = await axios.post(
       `${OLLAMA_URL}/api/generate`,
       {
-        model: OLLAMA_MODEL,
+        model: OLLAMA_LOCAL_MODEL,
         prompt,
         stream: false,
         options: {
@@ -293,18 +294,18 @@ export async function findOrCreateStoryNumber(
     return { storyNumber: newStoryNumber, isNewStory: true };
   }
 
-  // const similarArticle = await findSimilarArticle(
-  //   title,
-  //   content,
-  //   existingArticles
-  // );
+  const similarArticle = await findSimilarArticle(
+    title,
+    content,
+    existingArticles
+  );
 
-  // if (similarArticle) {
-  //   return {
-  //     storyNumber: similarArticle.radar_story_number,
-  //     isNewStory: false,
-  //   };
-  // }
+  if (similarArticle) {
+    return {
+      storyNumber: similarArticle.radar_story_number,
+      isNewStory: false,
+    };
+  }
 
   const newStoryNumber = await generateNewStoryNumber();
   console.log(
