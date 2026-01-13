@@ -162,7 +162,7 @@ apiRouter.addRoute({
  * Update a source by ID
  */
 apiRouter.addRoute({
-  method: "put",
+  method: "patch",
   path: "/:id",
   handler: (req, res) => SourceController.updateSource(req, res),
   summary: "Update source",
