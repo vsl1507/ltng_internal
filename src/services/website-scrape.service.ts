@@ -1,8 +1,10 @@
-// services/website-scrape.service.ts
-
 import axios from "axios";
 import pool from "../config/mysql.config";
-import { WebsiteSourceConfig } from "../types/website.type";
+import {
+  ScrapedArticle,
+  ScrapeStats,
+  WebsiteSourceConfig,
+} from "../types/website.type";
 import Parser from "rss-parser";
 import * as cheerio from "cheerio";
 import {
@@ -15,26 +17,8 @@ import {
   isDuplicate,
 } from "../utils/scrape.utils";
 import radarAIService from "./radar-ai.service";
-import { mediaService } from "./media.service";
+import mediaService from "./media.service";
 
-// ========== INTERFACES ==========
-interface ScrapedArticle {
-  title: string;
-  content: string;
-  url: string;
-  author?: string;
-  publishedAt?: Date;
-  images?: string[];
-}
-
-interface ScrapeStats {
-  savedCount: number;
-  skippedCount: number;
-  duplicateCount: number;
-  mediaCount: number;
-}
-
-// ========== SERVICE ==========
 export class WebsiteScrapeService {
   private rssParser: Parser;
 
@@ -585,6 +569,9 @@ export class WebsiteScrapeService {
     console.log(`   🖼️  Media: ${stats.mediaCount}`);
   }
 
+  /**
+   * Hanle media of webiste
+   */
   private async handleMedia(
     article: any,
     articleId: number,
@@ -626,7 +613,7 @@ export class WebsiteScrapeService {
             sourceName,
             sourceType: "website",
             timeout: 30000,
-            maxRetries: 3,
+            maxRetries: 1,
           });
 
           if (result.success) {

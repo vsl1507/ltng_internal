@@ -1,69 +1,16 @@
-// services/media.service.ts
-// Universal Media Service with ImageKit Integration
-
 import axios from "axios";
 import * as crypto from "crypto";
 import * as path from "path";
 import pool from "../config/mysql.config";
 import ImageKit from "imagekit";
-
-// ========== INTERFACES ==========
-
-export interface MediaDownloadOptions {
-  articleId: number;
-  sourceName: string;
-  sourceType: "telegram" | "website" | "rss" | "api" | "other";
-  maxRetries?: number;
-  timeout?: number;
-  uploadToImageKit?: boolean;
-}
-
-export interface MediaDownloadResult {
-  success: boolean;
-  mediaId?: number;
-  mediaType?: string;
-  mediaSize?: number;
-  imagekitUrl?: string;
-  imagekitFileId?: string;
-  error?: string;
-}
-
-export interface MediaInfo {
-  mediaId?: number;
-  radarId: number;
-  mediaType: "IMAGE" | "VIDEO" | "AUDIO" | "EMBED" | "OTHER";
-  mediaUrl?: string;
-  mediaCaption?: string;
-  mediaAltText?: string;
-  mediaCredit?: string;
-  mimeType?: string;
-  width?: number;
-  height?: number;
-  duration?: number;
-  imagekitUrl?: string;
-  imagekitFileId?: string;
-  createdAt?: Date;
-  updatedAt?: Date;
-  isDeleted?: boolean;
-}
-
-export interface IMediaSourceAdapter {
-  downloadMedia(source: any, options: MediaDownloadOptions): Promise<Buffer>;
-  getMediaType(source: any): string;
-  getMimeType(source: any): string;
-}
-
-// ========== IMAGEKIT CONFIGURATION ==========
-
-interface ImageKitUploadResult {
-  fileId: string;
-  url: string;
-  thumbnailUrl?: string;
-  width?: number;
-  height?: number;
-}
-
-// ========== MAIN SERVICE ==========
+import sharp from "sharp";
+import {
+  ImageKitUploadResult,
+  IMediaSourceAdapter,
+  MediaDownloadOptions,
+  MediaDownloadResult,
+  MediaInfo,
+} from "../types/media.type";
 
 export class MediaService {
   private imagekit: ImageKit | null = null;
@@ -161,66 +108,44 @@ export class MediaService {
     }
   }
 
-  // ==================== PUBLIC API ====================
-
   /**
-   * Universal media download from URL (async - returns immediately)
+   * Universal media download from URL (MUST upload to ImageKit before storing in DB)
+   * Only downloads WebP images and converts them to JPEG
    */
   async downloadFromUrl(
     url: string,
     options: MediaDownloadOptions
   ): Promise<MediaDownloadResult> {
     try {
-      console.log(`📥 Downloading: ${url.substring(0, 80)}...`);
+      console.log(`📥 Checking: ${url.substring(0, 80)}...`);
 
       if (!this.isValidUrl(url)) {
         return this.createErrorResult("Invalid URL");
       }
 
-      // Save URL reference immediately
-      const mediaId = await this.saveMediaMetadata({
-        radarId: options.articleId,
-        mediaType: "IMAGE",
-        mediaUrl: url,
-        mimeType: null,
-        imagekitUrl: null,
-        imagekitFileId: null,
-      });
-
-      // Download and upload in background (don't await)
-      this.processMediaInBackground(url, options, mediaId).catch((error) => {
-        console.error(`❌ Background processing failed: ${error.message}`);
-      });
-
-      console.log(`✅ Media queued for processing: ${mediaId}`);
-
-      return {
-        success: true,
-        mediaId,
-        mediaType: "IMAGE",
-        mediaSize: 0,
-      };
-    } catch (error: any) {
-      console.error(`❌ Download failed: ${error.message}`);
-      return this.createErrorResult(error.message);
-    }
-  }
-
-  /**
-   * Process media in background (download + upload to ImageKit)
-   */
-  private async processMediaInBackground(
-    url: string,
-    options: MediaDownloadOptions,
-    mediaId: number
-  ): Promise<void> {
-    try {
-      const shouldUploadToImageKit = options.uploadToImageKit !== false;
+      // Quick check: Skip if URL doesn't suggest WebP
+      const urlLower = url.toLowerCase();
+      if (!urlLower.includes(".webp") && !urlLower.includes("format=webp")) {
+        console.log(`⏭️ Skipping non-WebP URL: ${url.substring(0, 80)}...`);
+        return this.createErrorResult("Not a WebP image");
+      }
 
       // Download media
-      const buffer = await this.fetchFromUrl(url, options.timeout);
-      const mimeType = await this.detectMimeType(buffer, url);
-      const mediaType = this.getMediaTypeFromMime(mimeType);
+      let buffer = await this.fetchFromUrl(url, options.timeout);
+      let mimeType = await this.detectMimeType(buffer, url);
+      let mediaType = this.getMediaTypeFromMime(mimeType);
+
+      // Only process WebP images, skip others
+      if (mimeType !== "image/webp") {
+        console.log(`⏭️ Skipping non-WebP image: ${mimeType}`);
+        return this.createErrorResult("Not a WebP image");
+      }
+
+      // Convert WebP to JPEG
+      console.log(`🔄 Converting WebP to JPEG...`);
+      buffer = await this.convertWebPToJPEG(buffer);
+      mimeType = "image/jpeg";
+      mediaType = "IMAGE";
 
       // Generate filename
       const extension = this.getExtensionFromMime(mimeType) || "bin";
@@ -230,58 +155,64 @@ export class MediaService {
         extension
       );
 
-      // Upload to ImageKit
-      let imagekitResult: ImageKitUploadResult | null = null;
-      if (shouldUploadToImageKit) {
-        const folder = `news-radar/${options.sourceType}/${this.getSubdirectory(
-          mediaType
-        )}`;
-        imagekitResult = await this.uploadToImageKit(
-          buffer,
-          filename,
-          folder,
-          mimeType
+      // CRITICAL: Check if ImageKit is properly initialized
+      if (!this.imagekitEnabled || !this.imagekit) {
+        console.error(`❌ ImageKit is not initialized - cannot proceed`);
+        return this.createErrorResult("ImageKit service is not available");
+      }
+
+      // CRITICAL: Upload to ImageKit FIRST before saving to database
+      const folder = `news-radar/${options.sourceType}/${this.getSubdirectory(
+        mediaType
+      )}`;
+
+      console.log(`☁️ Uploading to ImageKit (required)...`);
+      const imagekitResult = await this.uploadToImageKit(
+        buffer,
+        filename,
+        folder,
+        mimeType
+      );
+
+      // If ImageKit upload fails, DO NOT store in database
+      if (!imagekitResult || !imagekitResult.url || !imagekitResult.fileId) {
+        console.error(`❌ ImageKit upload failed - will NOT store in database`);
+        return this.createErrorResult(
+          "Failed to upload to ImageKit - media not saved"
         );
       }
 
-      // Update metadata in database
-      await pool.query(
-        `UPDATE ltng_news_media 
-         SET media_type = ?,
-             media_mime_type = ?,
-             media_width = ?,
-             media_height = ?,
-             imagekit_url = ?,
-             imagekit_file_id = ?
-         WHERE media_id = ?`,
-        [
-          mediaType,
-          mimeType,
-          imagekitResult?.width || null,
-          imagekitResult?.height || null,
-          imagekitResult?.url || null,
-          imagekitResult?.fileId || null,
-          mediaId,
-        ]
-      );
+      console.log(`✅ ImageKit upload successful: ${imagekitResult.url}`);
+
+      // Only save to database AFTER successful ImageKit upload
+      const mediaId = await this.saveMediaMetadata({
+        radarId: options.articleId,
+        mediaType: mediaType as any,
+        mediaUrl: url,
+        mimeType,
+        imagekitUrl: imagekitResult.url,
+        imagekitFileId: imagekitResult.fileId,
+        width: imagekitResult.width,
+        height: imagekitResult.height,
+      });
 
       console.log(
-        `✅ Background processing complete for media ${mediaId}: ${filename} (${this.formatBytes(
+        `✅ Media saved to database: ID ${mediaId}, ${filename} (${this.formatBytes(
           buffer.length
         )})`
       );
-    } catch (error: any) {
-      console.error(
-        `❌ Background processing failed for media ${mediaId}: ${error.message}`
-      );
 
-      // Mark as failed in database
-      await pool.query(
-        `UPDATE ltng_news_media 
-         SET media_mime_type = ?
-         WHERE media_id = ?`,
-        ["error/failed", mediaId]
-      );
+      return {
+        success: true,
+        mediaId,
+        mediaType,
+        mediaSize: buffer.length,
+        imagekitUrl: imagekitResult.url,
+        imagekitFileId: imagekitResult.fileId,
+      };
+    } catch (error: any) {
+      console.error(`❌ Download failed: ${error.message}`);
+      return this.createErrorResult(error.message);
     }
   }
 
@@ -333,10 +264,21 @@ export class MediaService {
         },
       });
 
-      const buffer = Buffer.concat(chunks);
+      let buffer: Buffer = Buffer.concat(chunks);
 
       if (!buffer || buffer.length === 0) {
         return this.createErrorResult("Failed to download media from Telegram");
+      }
+
+      let finalMimeType = mimeType;
+      let finalMediaType = mediaType;
+
+      // Convert WebP to JPEG if needed
+      if (mimeType === "image/webp") {
+        console.log(`🔄 Converting WebP to JPEG...`);
+        buffer = await this.convertWebPToJPEG(buffer);
+        finalMimeType = "image/jpeg";
+        finalMediaType = "IMAGE";
       }
 
       const fileSize = buffer.length;
@@ -344,13 +286,13 @@ export class MediaService {
       // Upload to ImageKit
       let imagekitResult: ImageKitUploadResult | null = null;
       if (shouldUploadToImageKit) {
-        const subdir = this.getSubdirectory(mediaType);
+        const subdir = this.getSubdirectory(finalMediaType);
         const folder = `news-radar/${options.sourceType}/${subdir}`;
         imagekitResult = await this.uploadToImageKit(
           buffer,
           filename,
           folder,
-          mimeType
+          finalMimeType
         );
 
         if (!imagekitResult) {
@@ -361,9 +303,9 @@ export class MediaService {
       // Save metadata
       const mediaId = await this.saveMediaMetadata({
         radarId: options.articleId,
-        mediaType: mediaType as any,
+        mediaType: finalMediaType as any,
         mediaUrl: "",
-        mimeType,
+        mimeType: finalMimeType,
         imagekitUrl: imagekitResult?.url || null,
         imagekitFileId: imagekitResult?.fileId || null,
         width: imagekitResult?.width,
@@ -375,7 +317,7 @@ export class MediaService {
       return {
         success: true,
         mediaId,
-        mediaType,
+        mediaType: finalMediaType,
         mediaSize: fileSize,
         imagekitUrl: imagekitResult?.url,
         imagekitFileId: imagekitResult?.fileId,
@@ -400,9 +342,17 @@ export class MediaService {
       const shouldUploadToImageKit = options.uploadToImageKit !== false;
 
       // Use adapter to download
-      const buffer = await adapter.downloadMedia(source, options);
-      const mediaType = adapter.getMediaType(source);
-      const mimeType = adapter.getMimeType(source);
+      let buffer = await adapter.downloadMedia(source, options);
+      let mediaType = adapter.getMediaType(source);
+      let mimeType = adapter.getMimeType(source);
+
+      // Convert WebP to JPEG if needed
+      if (mimeType === "image/webp") {
+        console.log(`🔄 Converting WebP to JPEG...`);
+        buffer = await this.convertWebPToJPEG(buffer);
+        mimeType = "image/jpeg";
+        mediaType = "IMAGE";
+      }
 
       // Generate filename
       const extension = this.getExtensionFromMime(mimeType) || "bin";
@@ -585,7 +535,18 @@ export class MediaService {
     return mediaInfo.mediaUrl || "";
   }
 
-  // ==================== PRIVATE METHODS ====================
+  /**
+   * Convert WebP image to JPEG
+   */
+  private async convertWebPToJPEG(buffer: Buffer): Promise<Buffer> {
+    try {
+      const result = await sharp(buffer).jpeg({ quality: 90 }).toBuffer();
+      return Buffer.from(result);
+    } catch (error: any) {
+      console.error(`❌ WebP conversion failed: ${error.message}`);
+      throw error;
+    }
+  }
 
   private async fetchFromUrl(
     url: string,
@@ -606,6 +567,8 @@ export class MediaService {
 
   private async detectMimeType(buffer: Buffer, url?: string): Promise<string> {
     const signature = buffer.subarray(0, 12).toString("hex");
+
+    console.log("signature: ", signature);
 
     if (signature.startsWith("ffd8ff")) return "image/jpeg";
     if (signature.startsWith("89504e47")) return "image/png";
@@ -800,4 +763,4 @@ export class MediaService {
   }
 }
 
-export const mediaService = new MediaService();
+export default new MediaService();

@@ -1,8 +1,3 @@
-/* =========================================
- * Website Source Types
- * LTNG News Radar
- * ========================================= */
-
 export type WebsitePlatform = "website";
 
 export interface WebsiteCommonConfig {
@@ -55,4 +50,20 @@ export interface WebsiteSourceConfig {
   platform: WebsitePlatform;
   common: WebsiteCommonConfig;
   website: WebsiteConfig;
+}
+
+export interface ScrapedArticle {
+  title: string;
+  content: string;
+  url: string;
+  author?: string;
+  publishedAt?: Date;
+  images?: string[];
+}
+
+export interface ScrapeStats {
+  savedCount: number;
+  skippedCount: number;
+  duplicateCount: number;
+  mediaCount: number;
 }

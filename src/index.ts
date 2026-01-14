@@ -187,7 +187,7 @@ const startScrapeSchedules = () => {
       console.log(
         `🔄 [${new Date().toISOString()}] Running scheduled Telegram scrape...`
       );
-      await scrapeService.scrapeFromSource();
+      // await scrapeService.scrapeFromSource();
       console.log(`✅ [${new Date().toISOString()}] Telegram scrape completed`);
     } catch (error) {
       console.error(
@@ -204,7 +204,7 @@ const startScrapeSchedules = () => {
       console.log(
         `🔄 [${new Date().toISOString()}] Running scheduled Website scrape...`
       );
-      // await websiteScrapeService.scrapeFromSource();
+      await websiteScrapeService.scrapeFromSource();
       console.log(`✅ [${new Date().toISOString()}] Website scrape completed`);
     } catch (error) {
       console.error(
@@ -286,14 +286,14 @@ const startServer = async () => {
     // Run scrapes in background without blocking
     setImmediate(async () => {
       try {
-        await scrapeService.scrapeFromSource();
+        // await scrapeService.scrapeFromSource();
         console.log("✅ Initial Telegram scrape completed");
       } catch (error) {
         console.error("❌ Initial Telegram scrape failed:", error);
       }
 
       try {
-        // await websiteScrapeService.scrapeFromSource();
+        await websiteScrapeService.scrapeFromSource();
         console.log("✅ Initial Website scrape completed");
       } catch (error) {
         console.error("❌ Initial Website scrape failed:", error);
