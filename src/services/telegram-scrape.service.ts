@@ -1,9 +1,7 @@
-// services/telegram-scrape.service.ts
-
 import pool from "../config/mysql.config";
 import { getTelegramClient } from "../config/telegram.config";
 import { ScrapeResult, TelegramSourceConfig } from "../types/telegram.type";
-import { mediaService } from "./media.service";
+import mediaService from "./media.service";
 import {
   generateContentHash,
   findOrCreateStoryNumber,
@@ -164,6 +162,11 @@ export class ScrapeService {
           config
         );
 
+        const article: any = await pool.query(
+          "SELECT * FROM ltng_news_radar WHERE id = ?",
+          [articleId]
+        );
+
         if (articleId) {
           savedCount++;
 
@@ -171,7 +174,7 @@ export class ScrapeService {
           const mediaDownloaded = await this.handleMedia(
             mediaGroup,
             articleId,
-            channelUsername,
+            article.radar_story_number,
             config
           );
 
@@ -247,7 +250,7 @@ export class ScrapeService {
   private async handleMedia(
     mediaGroup: any[],
     articleId: number,
-    channelUsername: string,
+    storyNumber: number,
     config: TelegramSourceConfig
   ): Promise<boolean> {
     if (!config.common.media.include) {
@@ -271,8 +274,8 @@ export class ScrapeService {
           articleId: articleId,
           sourceName: config.telegram.username,
           sourceType: config.platform,
+          storyNumber: storyNumber,
         });
-        console.log("articleId: ", articleId);
 
         if (mediaPath) {
           console.log(`✅ Downloaded first media: ${mediaPath}`);

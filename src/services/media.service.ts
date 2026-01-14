@@ -248,6 +248,7 @@ export class MediaService {
         extension
       );
 
+      console.log("options : ", options);
       // Download to buffer using custom writer
       const chunks: Buffer[] = [];
       await client.downloadMedia(message, {
@@ -310,6 +311,7 @@ export class MediaService {
         imagekitFileId: imagekitResult?.fileId || null,
         width: imagekitResult?.width,
         height: imagekitResult?.height,
+        storyNumber: options.storyNumber,
       });
 
       console.log(`✅ Downloaded: ${filename} (${this.formatBytes(fileSize)})`);
@@ -441,7 +443,7 @@ export class MediaService {
    */
   async getMediaByArticle(articleId: number): Promise<MediaInfo[]> {
     const [rows]: any = await pool.query(
-      `SELECT * FROM ltng_news_radar_media WHERE radar_id = ? AND is_deleted = 0 ORDER BY created_at ASC`,
+      `SELECT * FROM ltng_news_media WHERE radar_id = ? AND is_deleted = 0 ORDER BY created_at ASC`,
       [articleId]
     );
 
@@ -479,7 +481,7 @@ export class MediaService {
       }
 
       // Delete database record
-      await pool.query(`DELETE FROM ltng_news_radar_media WHERE media_id = ?`, [
+      await pool.query(`DELETE FROM ltng_news_media WHERE media_id = ?`, [
         mediaId,
       ]);
 
@@ -606,6 +608,7 @@ export class MediaService {
     mimeType: string | null;
     imagekitUrl: string | null;
     imagekitFileId: string | null;
+    storyNumber?: number;
     width?: number;
     height?: number;
     duration?: number;
@@ -613,6 +616,7 @@ export class MediaService {
     const [result]: any = await pool.query(
       `INSERT INTO ltng_news_media (
         media_radar_id,
+        media_story_number,
         media_type,
         media_url,
         media_mime_type,
@@ -622,9 +626,10 @@ export class MediaService {
         imagekit_url,
         imagekit_file_id,
         is_deleted
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
       [
         data.radarId,
+        data.storyNumber,
         data.mediaType,
         data.mediaUrl,
         data.mimeType,

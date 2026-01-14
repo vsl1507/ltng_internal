@@ -2,6 +2,7 @@ export interface MediaDownloadOptions {
   articleId: number;
   sourceName: string;
   sourceType: "telegram" | "website" | "rss" | "api" | "other";
+  storyNumber?: number;
   maxRetries?: number;
   timeout?: number;
   uploadToImageKit?: boolean;

@@ -191,6 +191,16 @@ export class WebsiteScrapeService {
           config
         );
 
+        const articleSource: any = await pool.query(
+          "SELECT * FROM ltng_news_radar WHERE radar_id = ?",
+          [articleId]
+        );
+
+        console.log(
+          "articleSource.radar_story_number: ",
+          articleSource.radar_story_number
+        );
+
         if (articleId) {
           stats.savedCount++;
 
@@ -199,6 +209,7 @@ export class WebsiteScrapeService {
             article,
             articleId,
             config.website.base_url,
+            articleSource.radar_story_number,
             config
           );
 
@@ -576,6 +587,7 @@ export class WebsiteScrapeService {
     article: any,
     articleId: number,
     sourceName: string,
+    storyNumber: number,
     config: any
   ): Promise<boolean> {
     if (!config.common.media.include) {
@@ -612,6 +624,7 @@ export class WebsiteScrapeService {
             articleId,
             sourceName,
             sourceType: "website",
+            storyNumber: storyNumber,
             timeout: 30000,
             maxRetries: 1,
           });
@@ -628,6 +641,7 @@ export class WebsiteScrapeService {
                 articleId,
                 sourceName,
                 sourceType: "website",
+                storyNumber: storyNumber,
               },
               mediaType
             );
@@ -641,6 +655,7 @@ export class WebsiteScrapeService {
               articleId,
               sourceName,
               sourceType: "website",
+              storyNumber: storyNumber,
             },
             mediaType
           );
