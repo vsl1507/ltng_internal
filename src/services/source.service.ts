@@ -13,7 +13,7 @@ import {
   OLLAMA_TEMPERATURE,
   OLLAMA_TIMEOUT,
   OLLAMA_URL,
-} from "../types/ollama.type";
+} from "../types/constants.type";
 
 export class NewsSourceService {
   /**

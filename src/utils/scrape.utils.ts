@@ -2,7 +2,7 @@
 
 import axios from "axios";
 import pool from "../config/mysql.config";
-import { OLLAMA_LOCAL_MODEL, OLLAMA_URL } from "../types/ollama.type";
+import { OLLAMA_LOCAL_MODEL, OLLAMA_URL } from "../types/constants.type";
 
 // ========== CONSTANTS ==========
 export const SIMILARITY_THRESHOLD = 0.65;

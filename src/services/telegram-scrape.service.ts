@@ -2,7 +2,7 @@
 
 import pool from "../config/mysql.config";
 import { getTelegramClient } from "../config/telegram.config";
-import { TelegramSourceConfig } from "../types/telegram.type";
+import { ScrapeResult, TelegramSourceConfig } from "../types/telegram.type";
 import { mediaService } from "./media.service";
 import {
   generateContentHash,
@@ -14,27 +14,11 @@ import {
   sourceScrape,
 } from "../utils/scrape.utils";
 import radarAiService from "./radar-ai.service";
+import { TITLE_MAX_LENGTH, TITLE_MIN_LENGTH } from "../types/constants.type";
 
-// ========== CONSTANTS ==========
-const TITLE_MAX_LENGTH = 200;
-const TITLE_MIN_LENGTH = 100;
-
-// ========== INTERFACES ==========
-interface ScrapeResult {
-  success: boolean;
-  sourceId: number;
-  sourceName: string;
-  channel: string;
-  messagesScraped: number;
-  mediaDownloaded: number;
-  totalMessages: number;
-  skipped: number;
-  duplicateUrls: number;
-  errors?: string[];
-}
-
-// ========== SERVICE ==========
 export class ScrapeService {
+  private source = "telegram";
+
   /**
    * Main scraping orchestrator
    */
@@ -48,7 +32,7 @@ export class ScrapeService {
         results.push(result);
       } catch (error) {
         console.error(
-          `❌ Failed to scrape source ${source.source_name}:`,
+          `❌ Failed to scrape source "${source.source_name}":`,
           error
         );
         results.push(this.createErrorResult(source, error));
@@ -62,7 +46,7 @@ export class ScrapeService {
    * Fetch active Telegram sources from database
    */
   private async fetchActiveSources(): Promise<any[]> {
-    const sources = await sourceScrape("telegram");
+    const sources = await sourceScrape(this.source);
 
     if (sources.length === 0) {
       throw new Error("No active Telegram sources found");
@@ -292,12 +276,11 @@ export class ScrapeService {
 
         if (mediaPath) {
           console.log(`✅ Downloaded first media: ${mediaPath}`);
-          return true; // Stop after first successful download
+          return true;
         }
       } else {
-        // await mediaService.saveMediaInfo(msg, articleId);
         console.log(`✅ Saved first media info`);
-        return true; // Stop after first successful save
+        return true;
       }
     }
 

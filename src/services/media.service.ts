@@ -1,82 +1,170 @@
 // services/media.service.ts
-// Universal Media Service - Works with any source (Telegram, Website, RSS, etc.)
+// Universal Media Service with ImageKit Integration
 
 import axios from "axios";
-import * as fs from "fs";
-import * as path from "path";
 import * as crypto from "crypto";
+import * as path from "path";
 import pool from "../config/mysql.config";
+import ImageKit from "imagekit";
 
 // ========== INTERFACES ==========
 
-/**
- * Generic media download options
- */
 export interface MediaDownloadOptions {
   articleId: number;
   sourceName: string;
   sourceType: "telegram" | "website" | "rss" | "api" | "other";
   maxRetries?: number;
   timeout?: number;
+  uploadToImageKit?: boolean;
 }
 
-/**
- * Media download result
- */
 export interface MediaDownloadResult {
   success: boolean;
   mediaId?: number;
-  mediaPath?: string;
   mediaType?: string;
   mediaSize?: number;
+  imagekitUrl?: string;
+  imagekitFileId?: string;
   error?: string;
 }
 
-/**
- * Media info structure
- */
 export interface MediaInfo {
   mediaId?: number;
   radarId: number;
-  mediaType: "image" | "video" | "audio" | "document";
+  mediaType: "IMAGE" | "VIDEO" | "AUDIO" | "EMBED" | "OTHER";
   mediaUrl?: string;
-  mediaPath?: string;
+  mediaCaption?: string;
+  mediaAltText?: string;
+  mediaCredit?: string;
   mimeType?: string;
-  fileSize?: number;
   width?: number;
   height?: number;
   duration?: number;
-  thumbnailPath?: string;
+  imagekitUrl?: string;
+  imagekitFileId?: string;
   createdAt?: Date;
+  updatedAt?: Date;
+  isDeleted?: boolean;
 }
 
-/**
- * Media source adapter interface
- * Implement this for each source type
- */
 export interface IMediaSourceAdapter {
   downloadMedia(source: any, options: MediaDownloadOptions): Promise<Buffer>;
   getMediaType(source: any): string;
   getMimeType(source: any): string;
 }
 
+// ========== IMAGEKIT CONFIGURATION ==========
+
+interface ImageKitUploadResult {
+  fileId: string;
+  url: string;
+  thumbnailUrl?: string;
+  width?: number;
+  height?: number;
+}
+
 // ========== MAIN SERVICE ==========
 
 export class MediaService {
-  private mediaDir: string;
-  private baseUrl: string;
+  private imagekit: ImageKit | null = null;
+  private imagekitEnabled: boolean;
 
   constructor() {
-    this.mediaDir = process.env.MEDIA_STORAGE_PATH || "./storage/media";
-    this.baseUrl = process.env.MEDIA_BASE_URL || "http://localhost:3000/media";
-    this.ensureMediaDirectory();
+    this.imagekitEnabled = this.initializeImageKit();
+  }
+
+  /**
+   * Initialize ImageKit with environment variables
+   */
+  private initializeImageKit(): boolean {
+    const publicKey = process.env.IMAGEKIT_PUBLIC_KEY;
+    const privateKey = process.env.IMAGEKIT_PRIVATE_KEY;
+    const urlEndpoint = process.env.IMAGEKIT_URL_ENDPOINT;
+
+    if (!publicKey || !privateKey || !urlEndpoint) {
+      console.warn(
+        "⚠️ ImageKit credentials not found in environment variables"
+      );
+      console.warn("Media service will not function without ImageKit");
+      return false;
+    }
+
+    try {
+      this.imagekit = new ImageKit({
+        publicKey,
+        privateKey,
+        urlEndpoint,
+      });
+      console.log("✅ ImageKit initialized successfully");
+      return true;
+    } catch (error: any) {
+      console.error("❌ Failed to initialize ImageKit:", error.message);
+      return false;
+    }
+  }
+
+  /**
+   * Upload file to ImageKit
+   */
+  private async uploadToImageKit(
+    buffer: Buffer,
+    filename: string,
+    folder: string,
+    mimeType: string
+  ): Promise<ImageKitUploadResult | null> {
+    if (!this.imagekitEnabled || !this.imagekit) {
+      console.error("❌ ImageKit is not initialized");
+      return null;
+    }
+
+    try {
+      console.log(`☁️ Uploading to ImageKit: ${filename}`);
+
+      const uploadResponse = await this.imagekit.upload({
+        file: buffer,
+        fileName: filename,
+        folder: folder,
+        useUniqueFileName: true,
+        tags: ["news", "radar"],
+      });
+
+      console.log(`✅ ImageKit upload successful: ${uploadResponse.url}`);
+
+      return {
+        fileId: uploadResponse.fileId,
+        url: uploadResponse.url,
+        thumbnailUrl: uploadResponse.thumbnailUrl,
+        width: uploadResponse.width,
+        height: uploadResponse.height,
+      };
+    } catch (error: any) {
+      console.error(`❌ ImageKit upload failed: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Delete file from ImageKit
+   */
+  private async deleteFromImageKit(fileId: string): Promise<boolean> {
+    if (!this.imagekitEnabled || !this.imagekit || !fileId) {
+      return false;
+    }
+
+    try {
+      await this.imagekit.deleteFile(fileId);
+      console.log(`🗑️ Deleted from ImageKit: ${fileId}`);
+      return true;
+    } catch (error: any) {
+      console.error(`❌ Failed to delete from ImageKit: ${error.message}`);
+      return false;
+    }
   }
 
   // ==================== PUBLIC API ====================
 
   /**
-   * Universal media download from URL
-   * Works for: Website images, API endpoints, external URLs
+   * Universal media download from URL (async - returns immediately)
    */
   async downloadFromUrl(
     url: string,
@@ -89,41 +177,28 @@ export class MediaService {
         return this.createErrorResult("Invalid URL");
       }
 
-      // Download media
-      const buffer = await this.fetchFromUrl(url, options.timeout);
-      const mimeType = await this.detectMimeType(buffer, url);
-      const mediaType = this.getMediaTypeFromMime(mimeType);
-
-      // Save to disk
-      const saveResult = await this.saveMediaToDisk(
-        buffer,
-        mediaType,
-        mimeType,
-        options
-      );
-
-      // Save metadata to database
+      // Save URL reference immediately
       const mediaId = await this.saveMediaMetadata({
         radarId: options.articleId,
-        mediaType: mediaType as any,
+        mediaType: "IMAGE",
         mediaUrl: url,
-        mediaPath: saveResult.relativePath,
-        mimeType,
-        fileSize: saveResult.fileSize,
+        mimeType: null,
+        imagekitUrl: null,
+        imagekitFileId: null,
       });
 
-      console.log(
-        `✅ Downloaded: ${saveResult.filename} (${this.formatBytes(
-          saveResult.fileSize
-        )})`
-      );
+      // Download and upload in background (don't await)
+      this.processMediaInBackground(url, options, mediaId).catch((error) => {
+        console.error(`❌ Background processing failed: ${error.message}`);
+      });
+
+      console.log(`✅ Media queued for processing: ${mediaId}`);
 
       return {
         success: true,
         mediaId,
-        mediaPath: saveResult.relativePath,
-        mediaType,
-        mediaSize: saveResult.fileSize,
+        mediaType: "IMAGE",
+        mediaSize: 0,
       };
     } catch (error: any) {
       console.error(`❌ Download failed: ${error.message}`);
@@ -132,8 +207,86 @@ export class MediaService {
   }
 
   /**
+   * Process media in background (download + upload to ImageKit)
+   */
+  private async processMediaInBackground(
+    url: string,
+    options: MediaDownloadOptions,
+    mediaId: number
+  ): Promise<void> {
+    try {
+      const shouldUploadToImageKit = options.uploadToImageKit !== false;
+
+      // Download media
+      const buffer = await this.fetchFromUrl(url, options.timeout);
+      const mimeType = await this.detectMimeType(buffer, url);
+      const mediaType = this.getMediaTypeFromMime(mimeType);
+
+      // Generate filename
+      const extension = this.getExtensionFromMime(mimeType) || "bin";
+      const filename = this.generateFilename(
+        options.articleId,
+        options.sourceName,
+        extension
+      );
+
+      // Upload to ImageKit
+      let imagekitResult: ImageKitUploadResult | null = null;
+      if (shouldUploadToImageKit) {
+        const folder = `news-radar/${options.sourceType}/${this.getSubdirectory(
+          mediaType
+        )}`;
+        imagekitResult = await this.uploadToImageKit(
+          buffer,
+          filename,
+          folder,
+          mimeType
+        );
+      }
+
+      // Update metadata in database
+      await pool.query(
+        `UPDATE ltng_news_media 
+         SET media_type = ?,
+             media_mime_type = ?,
+             media_width = ?,
+             media_height = ?,
+             imagekit_url = ?,
+             imagekit_file_id = ?
+         WHERE media_id = ?`,
+        [
+          mediaType,
+          mimeType,
+          imagekitResult?.width || null,
+          imagekitResult?.height || null,
+          imagekitResult?.url || null,
+          imagekitResult?.fileId || null,
+          mediaId,
+        ]
+      );
+
+      console.log(
+        `✅ Background processing complete for media ${mediaId}: ${filename} (${this.formatBytes(
+          buffer.length
+        )})`
+      );
+    } catch (error: any) {
+      console.error(
+        `❌ Background processing failed for media ${mediaId}: ${error.message}`
+      );
+
+      // Mark as failed in database
+      await pool.query(
+        `UPDATE ltng_news_media 
+         SET media_mime_type = ?
+         WHERE media_id = ?`,
+        ["error/failed", mediaId]
+      );
+    }
+  }
+
+  /**
    * Download from Telegram message
-   * Works for: Telegram photos, videos, documents
    */
   async downloadFromTelegram(
     message: any,
@@ -145,6 +298,8 @@ export class MediaService {
       }
 
       console.log(`📥 Downloading Telegram media...`);
+
+      const shouldUploadToImageKit = options.uploadToImageKit !== false;
 
       // Get Telegram client
       const { getTelegramClient } = require("../config/telegram.config");
@@ -162,28 +317,57 @@ export class MediaService {
         extension
       );
 
-      // Determine storage path
-      const subdir = this.getSubdirectory(mediaType);
-      const relativePath = path.join(subdir, filename);
-      const fullPath = path.join(this.mediaDir, relativePath);
-
-      // Download using Telegram API
+      // Download to buffer using custom writer
+      const chunks: Buffer[] = [];
       await client.downloadMedia(message, {
-        outputFile: fullPath,
+        workers: 1,
+        progressCallback: (progress: number) => {
+          // Optional: track progress
+        },
+        outputFile: {
+          write: (data: Buffer) => {
+            chunks.push(data);
+            return data.length;
+          },
+          close: () => {},
+        },
       });
 
-      // Get file size
-      const stats = fs.statSync(fullPath);
-      const fileSize = stats.size;
+      const buffer = Buffer.concat(chunks);
+
+      if (!buffer || buffer.length === 0) {
+        return this.createErrorResult("Failed to download media from Telegram");
+      }
+
+      const fileSize = buffer.length;
+
+      // Upload to ImageKit
+      let imagekitResult: ImageKitUploadResult | null = null;
+      if (shouldUploadToImageKit) {
+        const subdir = this.getSubdirectory(mediaType);
+        const folder = `news-radar/${options.sourceType}/${subdir}`;
+        imagekitResult = await this.uploadToImageKit(
+          buffer,
+          filename,
+          folder,
+          mimeType
+        );
+
+        if (!imagekitResult) {
+          return this.createErrorResult("Failed to upload to ImageKit");
+        }
+      }
 
       // Save metadata
       const mediaId = await this.saveMediaMetadata({
         radarId: options.articleId,
         mediaType: mediaType as any,
-        mediaUrl: null,
-        mediaPath: relativePath,
+        mediaUrl: "",
         mimeType,
-        fileSize,
+        imagekitUrl: imagekitResult?.url || null,
+        imagekitFileId: imagekitResult?.fileId || null,
+        width: imagekitResult?.width,
+        height: imagekitResult?.height,
       });
 
       console.log(`✅ Downloaded: ${filename} (${this.formatBytes(fileSize)})`);
@@ -191,9 +375,10 @@ export class MediaService {
       return {
         success: true,
         mediaId,
-        mediaPath: relativePath,
         mediaType,
         mediaSize: fileSize,
+        imagekitUrl: imagekitResult?.url,
+        imagekitFileId: imagekitResult?.fileId,
       };
     } catch (error: any) {
       console.error(`❌ Telegram download failed: ${error.message}`);
@@ -203,7 +388,6 @@ export class MediaService {
 
   /**
    * Download from custom adapter
-   * Works for: Any custom source with an adapter
    */
   async downloadWithAdapter(
     source: any,
@@ -213,41 +397,62 @@ export class MediaService {
     try {
       console.log(`📥 Downloading with custom adapter...`);
 
+      const shouldUploadToImageKit = options.uploadToImageKit !== false;
+
       // Use adapter to download
       const buffer = await adapter.downloadMedia(source, options);
       const mediaType = adapter.getMediaType(source);
       const mimeType = adapter.getMimeType(source);
 
-      // Save to disk
-      const saveResult = await this.saveMediaToDisk(
-        buffer,
-        mediaType,
-        mimeType,
-        options
+      // Generate filename
+      const extension = this.getExtensionFromMime(mimeType) || "bin";
+      const filename = this.generateFilename(
+        options.articleId,
+        options.sourceName,
+        extension
       );
+
+      // Upload to ImageKit
+      let imagekitResult: ImageKitUploadResult | null = null;
+      if (shouldUploadToImageKit) {
+        const folder = `news-radar/${options.sourceType}/${this.getSubdirectory(
+          mediaType
+        )}`;
+        imagekitResult = await this.uploadToImageKit(
+          buffer,
+          filename,
+          folder,
+          mimeType
+        );
+
+        if (!imagekitResult) {
+          return this.createErrorResult("Failed to upload to ImageKit");
+        }
+      }
 
       // Save metadata
       const mediaId = await this.saveMediaMetadata({
         radarId: options.articleId,
         mediaType: mediaType as any,
-        mediaUrl: null,
-        mediaPath: saveResult.relativePath,
+        mediaUrl: "",
         mimeType,
-        fileSize: saveResult.fileSize,
+        imagekitUrl: imagekitResult?.url || null,
+        imagekitFileId: imagekitResult?.fileId || null,
+        width: imagekitResult?.width,
+        height: imagekitResult?.height,
       });
 
       console.log(
-        `✅ Downloaded: ${saveResult.filename} (${this.formatBytes(
-          saveResult.fileSize
-        )})`
+        `✅ Downloaded: ${filename} (${this.formatBytes(buffer.length)})`
       );
 
       return {
         success: true,
         mediaId,
-        mediaPath: saveResult.relativePath,
         mediaType,
-        mediaSize: saveResult.fileSize,
+        mediaSize: buffer.length,
+        imagekitUrl: imagekitResult?.url,
+        imagekitFileId: imagekitResult?.fileId,
       };
     } catch (error: any) {
       console.error(`❌ Adapter download failed: ${error.message}`);
@@ -257,21 +462,20 @@ export class MediaService {
 
   /**
    * Save media URL reference without downloading
-   * Works for: Any source where you just want to store the URL
    */
   async saveUrlReference(
     url: string,
     options: MediaDownloadOptions,
-    mediaType: string = "image"
+    mediaType: string = "IMAGE"
   ): Promise<number> {
     try {
       const mediaId = await this.saveMediaMetadata({
         radarId: options.articleId,
         mediaType: mediaType as any,
         mediaUrl: url,
-        mediaPath: null,
         mimeType: null,
-        fileSize: null,
+        imagekitUrl: null,
+        imagekitFileId: null,
       });
 
       console.log(`💾 Saved URL reference: ${url.substring(0, 80)}...`);
@@ -287,7 +491,7 @@ export class MediaService {
    */
   async getMediaByArticle(articleId: number): Promise<MediaInfo[]> {
     const [rows]: any = await pool.query(
-      `SELECT * FROM ltng_news_radar_media WHERE radar_id = ? ORDER BY created_at ASC`,
+      `SELECT * FROM ltng_news_radar_media WHERE radar_id = ? AND is_deleted = 0 ORDER BY created_at ASC`,
       [articleId]
     );
 
@@ -299,7 +503,7 @@ export class MediaService {
    */
   async getMediaById(mediaId: number): Promise<MediaInfo | null> {
     const [rows]: any = await pool.query(
-      `SELECT * FROM ltng_news_radar_media WHERE media_id = ?`,
+      `SELECT * FROM ltng_news_media WHERE media_id = ?`,
       [mediaId]
     );
 
@@ -308,24 +512,20 @@ export class MediaService {
   }
 
   /**
-   * Delete media (file + database record)
+   * Delete media (database record + ImageKit)
    */
   async deleteMedia(mediaId: number): Promise<boolean> {
     try {
       const [media]: any = await pool.query(
-        `SELECT media_path FROM ltng_news_radar_media WHERE media_id = ?`,
+        `SELECT imagekit_file_id FROM ltng_news_media WHERE media_id = ?`,
         [mediaId]
       );
 
       if (media.length === 0) return false;
 
-      // Delete file if exists
-      if (media[0].media_path) {
-        const fullPath = path.join(this.mediaDir, media[0].media_path);
-        if (fs.existsSync(fullPath)) {
-          fs.unlinkSync(fullPath);
-          console.log(`🗑️  Deleted file: ${media[0].media_path}`);
-        }
+      // Delete from ImageKit if exists
+      if (media[0].imagekit_file_id) {
+        await this.deleteFromImageKit(media[0].imagekit_file_id);
       }
 
       // Delete database record
@@ -349,7 +549,7 @@ export class MediaService {
       cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
 
       const [oldMedia]: any = await pool.query(
-        `SELECT media_id FROM ltng_news_radar_media WHERE created_at < ?`,
+        `SELECT media_id FROM ltng_news_media WHERE created_at < ?`,
         [cutoffDate]
       );
 
@@ -360,7 +560,7 @@ export class MediaService {
         if (deleted) deletedCount++;
       }
 
-      console.log(`🗑️  Cleaned up ${deletedCount} old media files`);
+      console.log(`🗑️ Cleaned up ${deletedCount} old media files`);
       return deletedCount;
     } catch (error: any) {
       console.error(`❌ Cleanup failed: ${error.message}`);
@@ -369,50 +569,24 @@ export class MediaService {
   }
 
   /**
-   * Get full file path for media
+   * Get public URL for media (ImageKit or original URL)
    */
-  getFullPath(mediaPath: string): string {
-    return path.join(this.mediaDir, mediaPath);
-  }
+  getPublicUrl(mediaInfo: MediaInfo | string): string {
+    if (typeof mediaInfo === "string") {
+      return mediaInfo;
+    }
 
-  /**
-   * Get public URL for media
-   */
-  getPublicUrl(mediaPath: string): string {
-    return `${this.baseUrl}/${mediaPath.replace(/\\/g, "/")}`;
-  }
+    // Return ImageKit URL if available
+    if (mediaInfo.imagekitUrl) {
+      return mediaInfo.imagekitUrl;
+    }
 
-  /**
-   * Check if media file exists
-   */
-  fileExists(mediaPath: string): boolean {
-    const fullPath = this.getFullPath(mediaPath);
-    return fs.existsSync(fullPath);
+    // Fallback to original URL
+    return mediaInfo.mediaUrl || "";
   }
 
   // ==================== PRIVATE METHODS ====================
 
-  /**
-   * Ensure media directory structure exists
-   */
-  private ensureMediaDirectory(): void {
-    if (!fs.existsSync(this.mediaDir)) {
-      fs.mkdirSync(this.mediaDir, { recursive: true });
-      console.log(`📁 Created media directory: ${this.mediaDir}`);
-    }
-
-    const subdirs = ["images", "videos", "audio", "documents"];
-    subdirs.forEach((subdir) => {
-      const fullPath = path.join(this.mediaDir, subdir);
-      if (!fs.existsSync(fullPath)) {
-        fs.mkdirSync(fullPath, { recursive: true });
-      }
-    });
-  }
-
-  /**
-   * Fetch media from URL
-   */
   private async fetchFromUrl(
     url: string,
     timeout: number = 30000
@@ -430,14 +604,9 @@ export class MediaService {
     return Buffer.from(response.data);
   }
 
-  /**
-   * Detect MIME type from buffer and URL
-   */
   private async detectMimeType(buffer: Buffer, url?: string): Promise<string> {
-    // Try to detect from file signature (magic bytes)
-    const signature = buffer.slice(0, 12).toString("hex");
+    const signature = buffer.subarray(0, 12).toString("hex");
 
-    // Common file signatures
     if (signature.startsWith("ffd8ff")) return "image/jpeg";
     if (signature.startsWith("89504e47")) return "image/png";
     if (signature.startsWith("47494638")) return "image/gif";
@@ -445,7 +614,6 @@ export class MediaService {
       return "image/webp";
     if (signature.startsWith("000000")) return "video/mp4";
 
-    // Fallback to URL extension
     if (url) {
       const ext = path.extname(url).toLowerCase().replace(".", "");
       const extMap: { [key: string]: string } = {
@@ -468,114 +636,67 @@ export class MediaService {
     return "application/octet-stream";
   }
 
-  /**
-   * Save media buffer to disk
-   */
-  private async saveMediaToDisk(
-    buffer: Buffer,
-    mediaType: string,
-    mimeType: string,
-    options: MediaDownloadOptions
-  ): Promise<{
-    fullPath: string;
-    relativePath: string;
-    filename: string;
-    fileSize: number;
-  }> {
-    const extension = this.getExtensionFromMime(mimeType) || "bin";
-    const filename = this.generateFilename(
-      options.articleId,
-      options.sourceName,
-      extension
-    );
-
-    const subdir = this.getSubdirectory(mediaType);
-    const relativePath = path.join(subdir, filename);
-    const fullPath = path.join(this.mediaDir, relativePath);
-
-    // Write file
-    fs.writeFileSync(fullPath, buffer);
-
-    // Get file size
-    const stats = fs.statSync(fullPath);
-
-    return {
-      fullPath,
-      relativePath,
-      filename,
-      fileSize: stats.size,
-    };
-  }
-
-  /**
-   * Save media metadata to database
-   */
   private async saveMediaMetadata(data: {
     radarId: number;
-    mediaType: "image" | "video" | "audio" | "document";
-    mediaUrl: string | null;
-    mediaPath: string | null;
+    mediaType: "IMAGE" | "VIDEO" | "AUDIO" | "EMBED" | "OTHER";
+    mediaUrl: string;
     mimeType: string | null;
-    fileSize: number | null;
+    imagekitUrl: string | null;
+    imagekitFileId: string | null;
     width?: number;
     height?: number;
     duration?: number;
   }): Promise<number> {
     const [result]: any = await pool.query(
-      `INSERT INTO ltng_news_radar_media (
-        radar_id,
+      `INSERT INTO ltng_news_media (
+        media_radar_id,
         media_type,
         media_url,
-        media_path,
         media_mime_type,
-        media_size,
         media_width,
         media_height,
         media_duration,
-        created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+        imagekit_url,
+        imagekit_file_id,
+        is_deleted
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
       [
         data.radarId,
         data.mediaType,
         data.mediaUrl,
-        data.mediaPath,
         data.mimeType,
-        data.fileSize,
         data.width || null,
         data.height || null,
         data.duration || null,
+        data.imagekitUrl,
+        data.imagekitFileId,
       ]
     );
 
     return result.insertId;
   }
 
-  /**
-   * Get media type from MIME type
-   */
-  private getMediaTypeFromMime(mimeType: string): string {
-    if (mimeType.startsWith("image/")) return "image";
-    if (mimeType.startsWith("video/")) return "video";
-    if (mimeType.startsWith("audio/")) return "audio";
-    return "document";
+  private getMediaTypeFromMime(
+    mimeType: string
+  ): "IMAGE" | "VIDEO" | "AUDIO" | "EMBED" | "OTHER" {
+    if (mimeType.startsWith("image/")) return "IMAGE";
+    if (mimeType.startsWith("video/")) return "VIDEO";
+    if (mimeType.startsWith("audio/")) return "AUDIO";
+    return "OTHER";
   }
 
-  /**
-   * Get Telegram media type
-   */
-  private getTelegramMediaType(media: any): string {
-    if (media.photo) return "image";
+  private getTelegramMediaType(
+    media: any
+  ): "IMAGE" | "VIDEO" | "AUDIO" | "EMBED" | "OTHER" {
+    if (media.photo) return "IMAGE";
     if (media.document) {
       const mimeType = media.document.mimeType || "";
-      if (mimeType.startsWith("video/")) return "video";
-      if (mimeType.startsWith("audio/")) return "audio";
+      if (mimeType.startsWith("video/")) return "VIDEO";
+      if (mimeType.startsWith("audio/")) return "AUDIO";
     }
-    return "document";
+    return "OTHER";
   }
 
-  /**
-   * Get Telegram MIME type
-   */
   private getTelegramMimeType(media: any): string {
     if (media.photo) return "image/jpeg";
     if (media.document) {
@@ -584,9 +705,6 @@ export class MediaService {
     return "application/octet-stream";
   }
 
-  /**
-   * Get file extension from MIME type
-   */
   private getExtensionFromMime(mimeType: string): string | null {
     const mimeMap: { [key: string]: string } = {
       "image/jpeg": "jpg",
@@ -607,9 +725,6 @@ export class MediaService {
     return mimeMap[mimeType.toLowerCase()] || null;
   }
 
-  /**
-   * Generate unique filename
-   */
   private generateFilename(
     articleId: number,
     source: string,
@@ -625,23 +740,18 @@ export class MediaService {
     return `${sanitizedSource}_${articleId}_${timestamp}_${random}.${extension}`;
   }
 
-  /**
-   * Get subdirectory for media type
-   */
   private getSubdirectory(mediaType: string): string {
     const dirMap: { [key: string]: string } = {
-      image: "images",
-      video: "videos",
-      audio: "audio",
-      document: "documents",
+      IMAGE: "images",
+      VIDEO: "videos",
+      AUDIO: "audio",
+      EMBED: "embeds",
+      OTHER: "documents",
     };
 
     return dirMap[mediaType] || "documents";
   }
 
-  /**
-   * Validate URL
-   */
   private isValidUrl(url: string): boolean {
     try {
       const parsed = new URL(url);
@@ -651,9 +761,6 @@ export class MediaService {
     }
   }
 
-  /**
-   * Format bytes to human-readable size
-   */
   private formatBytes(bytes: number): string {
     if (bytes === 0) return "0 Bytes";
 
@@ -664,9 +771,6 @@ export class MediaService {
     return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
   }
 
-  /**
-   * Create error result
-   */
   private createErrorResult(error: string): MediaDownloadResult {
     return {
       success: false,
@@ -674,25 +778,26 @@ export class MediaService {
     };
   }
 
-  /**
-   * Map database row to MediaInfo
-   */
   private mapRowToMediaInfo(row: any): MediaInfo {
     return {
       mediaId: row.media_id,
-      radarId: row.radar_id,
+      radarId: row.media_radar_id,
       mediaType: row.media_type,
       mediaUrl: row.media_url,
-      mediaPath: row.media_path,
+      mediaCaption: row.media_caption,
+      mediaAltText: row.media_alt_text,
+      mediaCredit: row.media_credit,
       mimeType: row.media_mime_type,
-      fileSize: row.media_size,
       width: row.media_width,
       height: row.media_height,
       duration: row.media_duration,
+      imagekitUrl: row.imagekit_url,
+      imagekitFileId: row.imagekit_file_id,
       createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      isDeleted: row.is_deleted === 1,
     };
   }
 }
 
-// Export singleton instance
 export const mediaService = new MediaService();

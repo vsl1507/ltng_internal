@@ -204,7 +204,7 @@ const startScrapeSchedules = () => {
       console.log(
         `🔄 [${new Date().toISOString()}] Running scheduled Website scrape...`
       );
-      await websiteScrapeService.scrapeFromSource();
+      // await websiteScrapeService.scrapeFromSource();
       console.log(`✅ [${new Date().toISOString()}] Website scrape completed`);
     } catch (error) {
       console.error(
@@ -293,7 +293,7 @@ const startServer = async () => {
       }
 
       try {
-        await websiteScrapeService.scrapeFromSource();
+        // await websiteScrapeService.scrapeFromSource();
         console.log("✅ Initial Website scrape completed");
       } catch (error) {
         console.error("❌ Initial Website scrape failed:", error);
@@ -301,7 +301,7 @@ const startServer = async () => {
     });
 
     // Start scheduled scraping
-    // startScrapeSchedules();
+    startScrapeSchedules();
 
     // Graceful shutdown handlers
     const shutdown = (signal: string) => {

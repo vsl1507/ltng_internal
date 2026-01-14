@@ -48,4 +48,5 @@ export interface ScrapeResult {
   totalMessages: number;
   skipped?: number;
   duplicateUrls?: number;
+  errors?: string[];
 }

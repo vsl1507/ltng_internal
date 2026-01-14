@@ -1,14 +1,10 @@
 import { Request, Response } from "express";
 import ResponseHandler from "../utils/response-handler";
-import { radarAIService } from "../services/radar-ai.service";
+import radarAIService from "../services/radar-ai.service";
 import { NewsRadarAIFilters } from "../models/news-radar-ai.model";
 
 export class NewsRadarAIController {
-  private radarAIService;
-
-  constructor() {
-    this.radarAIService = radarAIService;
-  }
+  constructor() {}
 
   //Get all news radar genreate by ai
   async getAllNewsRadarAI(req: Request, res: Response): Promise<void> {
@@ -21,7 +17,7 @@ export class NewsRadarAIController {
         limit: parseInt(req.query.limit as string) || 50,
       };
 
-      const result = await this.radarAIService.getAllNewsRadarAI(filters);
+      const result = await radarAIService.getAllNewsRadarAI(filters);
 
       ResponseHandler.successWithPagination(
         res,
@@ -44,7 +40,7 @@ export class NewsRadarAIController {
         return;
       }
 
-      const radar = await this.radarAIService.getNewsRadarAIbyId(id);
+      const radar = await radarAIService.getNewsRadarAIbyId(id);
 
       if (!radar) {
         ResponseHandler.notFound(res, "News radar ai not found");
@@ -80,7 +76,7 @@ export class NewsRadarAIController {
         return;
       }
 
-      const newRadarAI = await this.radarAIService.runByArticleId(radarAIData);
+      const newRadarAI = await radarAIService.runByArticleId(radarAIData);
       ResponseHandler.created(
         res,
         newRadarAI,

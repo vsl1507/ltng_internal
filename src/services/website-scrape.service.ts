@@ -14,7 +14,7 @@ import {
   shouldSkipContent,
   isDuplicate,
 } from "../utils/scrape.utils";
-import { radarAIService } from "./radar-ai.service";
+import radarAIService from "./radar-ai.service";
 import { mediaService } from "./media.service";
 
 // ========== INTERFACES ==========
@@ -37,7 +37,6 @@ interface ScrapeStats {
 // ========== SERVICE ==========
 export class WebsiteScrapeService {
   private rssParser: Parser;
-  private radarAIService;
 
   constructor() {
     this.rssParser = new Parser({
@@ -45,7 +44,6 @@ export class WebsiteScrapeService {
         item: ["media:content", "media:thumbnail", "content:encoded"],
       },
     });
-    this.radarAIService = radarAIService;
   }
 
   /**
@@ -309,7 +307,7 @@ export class WebsiteScrapeService {
    */
   private async processWithAI(articleId: number): Promise<void> {
     try {
-      const content_ai = await this.radarAIService.runByArticleId(articleId);
+      const content_ai = await radarAIService.runByArticleId(articleId);
       if (content_ai) {
         console.log("✅ AI processing complete:", content_ai);
       }
@@ -632,7 +630,7 @@ export class WebsiteScrapeService {
           });
 
           if (result.success) {
-            console.log(`   ✅ Downloaded ${mediaType}: ${result.mediaPath}`);
+            console.log(`   ✅ Downloaded ${mediaType}`);
             processedCount++;
           } else {
             console.log(`   ⚠️  Download failed: ${result.error}`);
