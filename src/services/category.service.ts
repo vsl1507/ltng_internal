@@ -13,6 +13,9 @@ import {
   PaginatedResponse,
 } from "../models/category.model";
 import { ResultSetHeader, RowDataPacket } from "mysql2";
+import ollamaService from "./ollama.service";
+import { OLLAMA_LOCAL_MODEL } from "../types/constants.type";
+import { CATEGORY_CONFIG } from "../types/scrape.type";
 
 export class CategoryService {
   private config: ClassificationConfig = {
@@ -815,52 +818,26 @@ ${content.substring(0, 2000)}
 `;
 
     try {
-      const ollamaUrl = process.env.OLLAMA_API_URL || "http://localhost:11434";
-      const apiEndpoint = `${ollamaUrl}/api/generate`;
-      const ollamaModel = process.env.OLLAMA_MODEL;
-      const ollamaAPIKey = process.env.OLLAMA_API_KEY;
-
-      console.log(`🤖 Calling Ollama API at: ${apiEndpoint}`);
-
-      const res = await axios.post(
-        apiEndpoint,
-        {
-          model: ollamaModel,
-          prompt,
-          stream: false,
-          options: {
-            temperature: 0.3,
-            num_predict: 2000,
-            num_ctx: 2048,
-          },
-        },
-        {
-          timeout: 180000,
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${ollamaAPIKey}`,
-          },
-        }
+      const response = await ollamaService.generate(
+        prompt,
+        OLLAMA_LOCAL_MODEL,
+        35000,
+        CATEGORY_CONFIG
       );
 
-      if (!res.data || !res.data.response) {
-        throw new Error("Empty response from Ollama");
-      }
-
-      let rawResponse = res.data.response.trim();
       console.log(
         "📥 Ollama raw response (first 500 chars):",
-        rawResponse.substring(0, 500)
+        response.substring(0, 500)
       );
 
-      let jsonStr = rawResponse;
-      const jsonBlockMatch = rawResponse.match(
+      let jsonStr = response;
+      const jsonBlockMatch = response.match(
         /```(?:json)?\s*(\{[\s\S]*?\})\s*```/
       );
       if (jsonBlockMatch) {
         jsonStr = jsonBlockMatch[1];
       } else {
-        const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+        const jsonMatch = response.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           jsonStr = jsonMatch[0];
         }
@@ -1183,3 +1160,5 @@ ${content.substring(0, 2000)}
     return stats[0];
   }
 }
+
+export default new CategoryService();

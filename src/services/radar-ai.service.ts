@@ -1,9 +1,18 @@
-import axios, { AxiosInstance } from "axios";
 import pool from "../config/mysql.config";
-import { CategoryService } from "./category.service";
+import categoryService, { CategoryService } from "./category.service";
 import { NewsRadarAI, NewsRadarAIFilters } from "../models/news-radar-ai.model";
 import { PaginatedResponse } from "../models/fb-account.model";
 import { RowDataPacket } from "mysql2";
+import ollamaService from "./ollama.service";
+import {
+  BILINGUAL_GENERATION_CONFIG,
+  NEWS_UPDATE_CONFIG,
+  SIMILARITY_CONFIG,
+} from "../types/scrape.type";
+import {
+  OLLAMA_CLOUD_MODEL,
+  OLLAMA_LOCAL_MODEL,
+} from "../types/constants.type";
 
 // ========== CONSTANTS ==========
 const THRESHOLDS = {
@@ -11,13 +20,6 @@ const THRESHOLDS = {
   UPDATE: 60,
   TRUNCATE_TEXT: 1500,
   CONTENT_PREVIEW: 3000,
-} as const;
-
-const OLLAMA_CONFIG = {
-  URL: process.env.OLLAMA_API_URL || "http://localhost:11434",
-  MODEL: process.env.OLLAMA_MODEL || "gpt-oss:120b-cloud",
-  API_KEY: process.env.OLLAMA_API_KEY,
-  TIMEOUT: 180000,
 } as const;
 
 // ========== TYPES ==========
@@ -67,75 +69,9 @@ interface AIContentWithId extends AIContent {
   article_id: number;
 }
 
-// ========== OLLAMA SERVICE ==========
-class OllamaService {
-  private client: AxiosInstance;
-
-  constructor() {
-    this.client = axios.create({
-      baseURL: OLLAMA_CONFIG.URL,
-      timeout: OLLAMA_CONFIG.TIMEOUT,
-      headers: {
-        "Content-Type": "application/json",
-        ...(OLLAMA_CONFIG.API_KEY && {
-          Authorization: `Bearer ${OLLAMA_CONFIG.API_KEY}`,
-        }),
-      },
-    });
-  }
-
-  async generate(prompt: string, options: any = {}): Promise<string> {
-    try {
-      const response = await this.client.post("/api/generate", {
-        model: OLLAMA_CONFIG.MODEL,
-        prompt,
-        stream: false,
-        options: {
-          temperature: 0.3,
-          num_predict: 1000,
-          num_ctx: 4096,
-          ...options,
-        },
-      });
-
-      const rawResponse = response.data?.response?.trim();
-      if (!rawResponse) {
-        throw new Error("Empty response from Ollama");
-      }
-
-      return rawResponse;
-    } catch (error: any) {
-      console.error("❌ Ollama API error:", error.message);
-      throw error;
-    }
-  }
-
-  parseJSON<T>(response: string): T {
-    // Remove markdown code blocks
-    const cleaned = response
-      .replace(/```json\s*/g, "")
-      .replace(/```\s*/g, "")
-      .trim();
-
-    // Extract JSON object
-    const jsonMatch = cleaned.match(/\{[\s\S]*?\}/);
-    if (!jsonMatch) {
-      throw new Error("No valid JSON found in response");
-    }
-
-    return JSON.parse(jsonMatch[0]);
-  }
-}
-
 // ========== RADAR AI SERVICE ==========
 export class RadarAIService {
-  private categoryService: CategoryService;
-  private ollamaService: OllamaService;
-
-  constructor() {
-    this.categoryService = new CategoryService();
-    this.ollamaService = new OllamaService();
-  }
+  constructor() {}
 
   /**
    * Fetch all news radar ai
@@ -734,13 +670,12 @@ export class RadarAIService {
     console.log(`   Title: ${aiResult.title_en?.substring(0, 60)}...`);
     console.log(`   Content length: ${aiResult.content_en?.length || 0} chars`);
 
-    const { categoryId, tagIds } =
-      await this.categoryService.autoCategorizeAndTag(
-        articleId,
-        aiResult.title_en,
-        aiResult.content_en,
-        systemUserId
-      );
+    const { categoryId, tagIds } = await categoryService.autoCategorizeAndTag(
+      articleId,
+      aiResult.title_en,
+      aiResult.content_en,
+      systemUserId
+    );
 
     const [insertResult] = (await pool.query(
       `INSERT INTO ltng_news_radar_ai (
@@ -769,7 +704,7 @@ export class RadarAIService {
     const aiId = insertResult.insertId;
 
     if (tagIds.length > 0) {
-      await this.categoryService.attachTagsToRadar(aiId, tagIds);
+      await categoryService.attachTagsToRadar(aiId, tagIds);
       console.log(`✅ Linked ${tagIds.length} tags to AI content #${aiId}`);
     }
 
@@ -819,17 +754,20 @@ export class RadarAIService {
     existingAI: string
   ): Promise<ContentDifference> {
     try {
-      const prompt = this.buildDifferencePrompt(newArticle, existingAI);
-      const response = await this.ollamaService.generate(prompt, {
-        temperature: 0.2,
-        num_predict: 1000,
-      });
+      const prompt: string = this.buildDifferencePrompt(newArticle, existingAI);
 
-      const result = this.ollamaService.parseJSON<ContentDifference>(response);
+      const response = await ollamaService.generate(
+        prompt,
+        OLLAMA_LOCAL_MODEL,
+        35000,
+        SIMILARITY_CONFIG
+      );
+
+      const result = ollamaService.parseJSON<ContentDifference>(response);
 
       return {
-        difference: result.difference || 50,
-        has_new_information: result.has_new_information !== false,
+        difference: result.difference ?? 50,
+        has_new_information: result.has_new_information ?? true,
         reasoning: result.reasoning || "No reasoning provided",
       };
     } catch (error: any) {
@@ -849,45 +787,26 @@ export class RadarAIService {
     newArticle: string,
     existingAI: string
   ): string {
-    const truncate = (text: string, maxLength = THRESHOLDS.TRUNCATE_TEXT) =>
+    const truncate = (text: string, maxLength = 2000) =>
       text.length > maxLength ? text.substring(0, maxLength) + "..." : text;
 
-    return `You are a news content analyzer.
+    return `
+    You are a news content analyzer. Compare EXISTING vs NEW content.
 
-TASK:
-Compare the NEW ARTICLE with the EXISTING AI CONTENT.
-Determine:
-1. How different is the new article? (0-100%)
-2. Does the new article contain NEW IMPORTANT information not in existing content?
+    TASK: Determine difference percentage (0-100) and if new article has important updates.
 
-NEW IMPORTANT INFORMATION means:
-- New facts, numbers, or data
-- New developments or updates to the story
-- New quotes from sources
-- New context or background
-- Corrections to previous information
+    NEW INFORMATION = new facts, data, quotes, developments, corrections
+    NOT NEW = reworded sentences, style changes, minor details
 
-NOT important:
-- Reworded sentences with same meaning
-- Different writing style
-- Minor details or formatting
+    EXISTING CONTENT: ${truncate(existingAI)}
 
-EXISTING AI CONTENT (what we already have):
-<<<
-${truncate(existingAI)}
->>>
+    NEW ARTICLE: ${truncate(newArticle)}
 
-NEW ARTICLE:
-<<<
-${truncate(newArticle)}
->>>
-
-Return ONLY valid JSON (no markdown, no extra text):
-{
-  "difference": 35,
-  "has_new_information": true,
-  "reasoning": "New article adds updated casualty figures and government response"
-}`;
+    Respond with ONLY this JSON (no markdown):
+    { "difference": 0-100, 
+      "has_new_information": true/false, 
+      "reasoning": "brief explanation"
+    }`;
   }
 
   /**
@@ -907,13 +826,15 @@ Return ONLY valid JSON (no markdown, no extra text):
       .join("\n\n");
 
     const prompt = this.buildGenerationPrompt(combined, articles.length);
-    const response = await this.ollamaService.generate(prompt, {
-      temperature: 0.1,
-      num_predict: 2000,
-    });
+    const response = await ollamaService.generate(
+      prompt,
+      OLLAMA_CLOUD_MODEL,
+      90000,
+      BILINGUAL_GENERATION_CONFIG
+    );
     console.log("🧠 AI Generation Response:", response);
 
-    const result = this.ollamaService.parseJSON<AIContent>(response);
+    const result = ollamaService.parseJSON<AIContent>(response);
 
     return {
       article_id: articles[0].radar_id,
@@ -931,56 +852,35 @@ Return ONLY valid JSON (no markdown, no extra text):
     combined: string,
     articleCount: number
   ): string {
-    return `You are a professional news editor.
+    const truncate = (text: string, maxLength = 6000) =>
+      text.length > maxLength ? text.substring(0, maxLength) + "..." : text;
 
-TASK:
-Based on the following ${articleCount} related articles about the SAME REAL-WORLD EVENT,
-generate ONE clean, neutral BASE NEWS ARTICLE.
+    return `You are a professional bilingual news editor (English + Khmer).
 
-DEFINITION:
-A BASE ARTICLE is:
-- a single coherent news article
-- fact-based and neutral
-- free of duplication, opinions, and speculation
-- written as if for a professional news outlet
+TASK: Synthesize ${articleCount} articles about the SAME EVENT into ONE base article in BOTH languages.
 
-RULES (MANDATORY):
-- Use ONLY facts that appear in the provided articles.
-- Do NOT invent or infer missing details.
-- If facts conflict, use the most commonly stated version.
-- Remove repetition, noise, hashtags, emojis, and source-specific wording.
-- Do NOT mention sources, platforms, or article counts.
-- Do NOT say "according to reports" or similar phrases.
-- Keep tone factual and objective.
+CRITICAL REQUIREMENTS (MANDATORY):
+- English content: REQUIRED - 200-300 words
+- Khmer content: REQUIRED - must match English meaning exactly
+- Both languages MUST tell the same story with identical facts
+- If you cannot generate Khmer, return an error - DO NOT leave it empty
 
-LANGUAGE RULES:
-- English content is REQUIRED.
-- Khmer content is REQUIRED.
-- If Khmer is generated, it must match the English meaning.
-
-CONTENT REQUIREMENTS:
-- Title must be concise and factual.
-- English content length: 100-300 words.
-- Structure as a standard news article (lead → details → context).
+CONTENT RULES:
+- Use ONLY facts from provided articles
+- Neutral, factual tone (no opinions/speculation)
+- Remove duplicates, hashtags, emojis, source mentions
+- DO NOT say "according to reports" or reference article sources
+- Structure: lead → details → context
 
 INPUT ARTICLES:
-<<<
-${combined}
->>>
+${truncate(combined)}
 
-OUTPUT RULES:
-- Return ONLY valid JSON.
-- NO markdown.
-- NO extra text.
-- No line breaks inside strings
-- Always close all quotes and braces
-
-Return ONLY valid JSON FORMAT:
+Return ONLY valid JSON with NO null values (no markdown, no line breaks in strings):
 {
-  "title_en": "Concise factual English title (max 100 chars)",
-  "content_en": "Single base news article in English (200–300 words)",
-  "title_kh": "Optional Khmer title or null",
-  "content_kh": "Optional Khmer content or null"
+  "title_en": "factual English title (max 100 chars)",
+  "content_en": "English article 200-300 words",
+  "title_kh": "ចំណងជើងជាភាសាខ្មែរ (max 100 chars) - REQUIRED",
+  "content_kh": "អត្ថបទជាភាសាខ្មែរ 200-300 ពាក្យ - REQUIRED"
 }`;
   }
 
@@ -997,12 +897,14 @@ Return ONLY valid JSON FORMAT:
         .join("\n\n---\n\n");
 
       const prompt = this.buildUpdatePrompt(newArticlesText, existingAI);
-      const response = await this.ollamaService.generate(prompt, {
-        temperature: 0.3,
-        num_predict: 3000,
-      });
+      const response = await ollamaService.generate(
+        prompt,
+        OLLAMA_CLOUD_MODEL,
+        120000,
+        NEWS_UPDATE_CONFIG
+      );
 
-      const result = this.ollamaService.parseJSON<AIContent>(response);
+      const result = ollamaService.parseJSON<AIContent>(response);
 
       return {
         title_en: result.title_en || existingAI.radar_ai_title_en,
@@ -1023,37 +925,31 @@ Return ONLY valid JSON FORMAT:
     newArticlesText: string,
     existingAI: ExistingAI
   ): string {
-    return `You are a professional news editor.
+    const truncate = (text: string, maxLength = 3000) =>
+      text.length > maxLength ? text.substring(0, maxLength) + "..." : text;
 
-TASK:
-You have an EXISTING news article and NEW articles about the SAME story.
-UPDATE the existing article by integrating new information while keeping the original context.
+    return `You are a news editor updating an existing article with new developments.
 
 EXISTING ARTICLE:
 Title: ${existingAI.radar_ai_title_en}
-Content:
-${existingAI.radar_ai_content_en}
+Content: ${existingAI.radar_ai_content_en}
 
-NEW ARTICLES WITH UPDATES:
-${newArticlesText.substring(0, 2000)}
+NEW DEVELOPMENTS:
+${truncate(newArticlesText)}
 
-RULES:
-- Keep the original story structure and context
-- Add NEW facts, developments, or updates
-- Update numbers, figures, or quotes if newer information is available
-- Maintain chronological order (old → new developments)
-- Remove outdated information if contradicted by new facts
-- Keep tone neutral and professional
-- English content: 300-600 words
-- Khmer content: Optional, translate if possible
+TASK: Merge new information into existing article.
 
-Return ONLY valid JSON (no markdown):
-{
-  "title_en": "Updated English title",
-  "content_en": "Updated English content with new information integrated",
-  "title_kh": "Updated Khmer title or null",
-  "content_kh": "Updated Khmer content or null"
-}`;
+UPDATE RULES:
+- PRESERVE original context and story flow
+- ADD new facts, quotes, numbers, developments
+- UPDATE outdated figures with newer data
+- REMOVE contradicted information
+- Maintain chronological order: background → latest developments
+- Length: 300-600 words (longer than original if substantial updates)
+- Tone: neutral, professional
+
+Return ONLY this JSON (no markdown):
+{"title_en": "updated title", "content_en": "updated 300-600 word article", "title_kh": null, "content_kh": null}`;
   }
 }
 

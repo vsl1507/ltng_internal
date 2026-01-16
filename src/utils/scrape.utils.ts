@@ -1,49 +1,19 @@
-// utils/scraping.utils.ts
-
 import axios from "axios";
 import pool from "../config/mysql.config";
-import { OLLAMA_LOCAL_MODEL, OLLAMA_URL } from "../types/constants.type";
-
-// ========== CONSTANTS ==========
-export const SIMILARITY_THRESHOLD = 0.65;
-export const STORY_LOOKBACK_DAYS = 7;
-export const EMBEDDING_TEXT_LIMIT = 2000;
-export const EMBEDDING_TIMEOUT = 10000;
-
-// const OLLAMA_URL = process.env.OLLAMA_API_URL || "http://localhost:11434";
-// const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "nomic-embed-text";
-const OLLAMA_API_KEY = process.env.OLLAMA_API_KEY || "";
-const OLLAMA_TIMEOUT = 20000;
-const TEXT_COMPARISON_LIMIT = 3000;
-
-// ========== INTERFACES ==========
-export interface StoryNumberResult {
-  storyNumber: number;
-  isNewStory: boolean;
-  isBreaking?: boolean;
-  similarity?: number;
-  matchedArticleId?: number;
-}
-
-export interface SimilarityResult {
-  same_story: number;
-  is_breaking: boolean;
-}
-
-// ========== SELECT SOURCE ==========
-
-export async function sourceScrape(source_type_slug: string): Promise<any> {
-  const [sources] = (await pool.query(
-    `SELECT * 
-        FROM ltng_news_sources s
-        JOIN ltng_news_source_types st ON s.source_type_id = st.source_type_id
-        WHERE s.source_is_active = TRUE
-        AND st.source_type_slug = ?
-        AND s.is_deleted  = FALSE `,
-    [source_type_slug]
-  )) as any;
-  return sources;
-}
+import {
+  OLLAMA_API_KEY,
+  OLLAMA_LOCAL_MODEL,
+  OLLAMA_TIMEOUT,
+  OLLAMA_URL,
+  SIMILARITY_THRESHOLD,
+  STORY_LOOKBACK_DAYS,
+  TEXT_COMPARISON_LIMIT,
+} from "../types/constants.type";
+import {
+  SIMILARITY_CONFIG,
+  SimilarityResult,
+  StoryNumberResult,
+} from "../types/scrape.type";
 
 // ========== TEXT PROCESSING UTILS ==========
 
@@ -90,10 +60,7 @@ export async function calculateTextSimilarity(
         model: OLLAMA_LOCAL_MODEL,
         prompt,
         stream: false,
-        options: {
-          temperature: 0.1,
-          num_predict: 1000,
-        },
+        options: SIMILARITY_CONFIG,
       },
       {
         timeout: OLLAMA_TIMEOUT,
@@ -128,49 +95,28 @@ function buildSimilarityPrompt(text1: string, text2: string): string {
   const truncate = (text: string, maxLength: number = TEXT_COMPARISON_LIMIT) =>
     text.length > maxLength ? text.substring(0, maxLength) + "..." : text;
 
-  return `You are a STRICT semantic comparison engine.
+  return `
+  You are a semantic similarity analyzer. Compare these articles FACTUALLY.
 
-TASK: Determine whether Article 1 and Article 2 describe the SAME REAL-WORLD EVENT.
+  SAME STORY = Same event (who, what, when, where, why match)
 
-DEFINITION: "SAME STORY" means BOTH articles describe:
-- the same people or group
-- the same date or time period
-- the same location
-- the same action
-- the same purpose or outcome
+  INSTRUCTIONS:
+  - Ignore style, formatting, emojis, hashtags
+  - Focus ONLY on core facts
+  - If 80%+ facts match → same_story = true
+  - Breaking news = urgent, time-sensitive, recent events
 
-RULES:
-- Compare ONLY meaning and facts
-- IGNORE writing style, formatting, emojis, hashtags
-- IGNORE duplicated or truncated sentences
-- Do NOT infer missing facts
-- If core facts match → same_story = true
+  Article 1: ${truncate(text1)}
 
-BREAKING NEWS CLASSIFICATION:
-- BREAKING NEWS: New, urgent, time-sensitive events
-- Indicators: "today", "now", "just", "latest", "breaking"
-- Emergency, crisis, attack, disaster, arrest, resignation
+  Article 2: ${truncate(text2)}
 
-Article 1:
-<<<
-${truncate(text1)}
->>>
-
-Article 2:
-<<<
-${truncate(text2)}
->>>
-
-Respond ONLY with valid JSON. NO markdown. NO extra text.
-
-JSON FORMAT:
-{
-  "same_story": true or false,
-  "difference": 0-100,
-  "is_breaking": true or false,
-  "confidence": 0.0-1.0,
-  "reasoning": "one short sentence"
-}`;
+  Respond with ONLY this JSON (no markdown):
+  { "same_story": true/false, 
+    "difference": 0-100, 
+    "is_breaking": true/false, 
+    "confidence": 0.0-1.0, 
+    "reasoning": "brief explanation"
+  }`;
 }
 
 /**
@@ -340,6 +286,22 @@ export async function findStoryLeader(
 }
 
 // ========== VALIDATION UTILS ==========
+
+/**
+ * Source scrape by source type
+ */
+export async function sourceScrape(source_type_slug: string): Promise<any> {
+  const [sources] = (await pool.query(
+    `SELECT * 
+        FROM ltng_news_sources s
+        JOIN ltng_news_source_types st ON s.source_type_id = st.source_type_id
+        WHERE s.source_is_active = TRUE
+        AND st.source_type_slug = ?
+        AND s.is_deleted  = FALSE `,
+    [source_type_slug]
+  )) as any;
+  return sources;
+}
 
 /**
  * Check if content should be skipped based on patterns

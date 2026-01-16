@@ -2,6 +2,9 @@ export interface OllamaCategoryTagResult {
   category: {
     en: string;
     kh: string;
+    description?: string;
+    color?: string;
+    order?: number;
   };
   tags: {
     en: string;
