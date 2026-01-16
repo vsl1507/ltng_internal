@@ -72,6 +72,17 @@ export class CategoryService {
         );
         tagIds = await this.processTagsWithAutoCreate(aiResult.tags, userId);
       }
+
+      // Auto-learn keywords from this article if enabled
+      if (this.config.autoLearnKeywords) {
+        await this.autoLearnKeywordsFromArticle(
+          categoryId,
+          title,
+          content,
+          keywordMatch.category_name_en,
+          userId
+        );
+      }
     } else {
       // Low confidence or no keyword match - use AI
       console.log(
@@ -100,6 +111,17 @@ export class CategoryService {
         );
         categoryId = existingCategory.category_id;
         isNewCategory = false;
+
+        // Auto-learn keywords from this article if enabled
+        if (this.config.autoLearnKeywords) {
+          await this.autoLearnKeywordsFromArticle(
+            categoryId,
+            title,
+            content,
+            existingCategory.category_name_en,
+            userId
+          );
+        }
       } else {
         // Create new category
         console.log(
@@ -108,8 +130,10 @@ export class CategoryService {
         categoryId = await this.createCategory(
           aiResult.category.en,
           aiResult.category.kh,
-          "Category Description",
-          userId
+          aiResult.category.description || "Category Description",
+          userId,
+          aiResult.category.color || undefined,
+          aiResult.category.order || undefined
         );
         isNewCategory = true;
 
@@ -227,7 +251,9 @@ export class CategoryService {
     nameEn: string,
     nameKh: string,
     description?: string,
-    userId?: number | null
+    userId?: number | null,
+    color?: string,
+    order?: number
   ): Promise<number> {
     const slug = slugify(nameEn);
 
@@ -241,9 +267,9 @@ export class CategoryService {
 
     const [result]: any = await pool.query(
       `INSERT INTO ltng_news_categories
-       (category_name_en, category_name_kh, category_slug, category_description, created_by)
-       VALUES (?, ?, ?, ?, ?)`,
-      [nameEn, nameKh || nameEn, description, finalSlug, userId]
+       (category_name_en, category_name_kh, category_slug, category_description, category_color, category_order, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [nameEn, nameKh || nameEn, finalSlug, description, color, order, userId]
     );
 
     console.log(`✅ Created category: ${nameEn} (ID: ${result.insertId})`);
@@ -796,6 +822,10 @@ Rules:
 - Tags must be nouns and specific to the article
 - Use Title Case for English
 - Khmer must be natural Khmer language
+- For NEW categories only: provide description (1 sentence), color (hex code), and order (number 1-100)
+- Description should be concise and explain what the category covers
+- Color should be a hex code (e.g., "#3B82F6") that represents the category theme
+- Order should be a number between 1-100 (lower = higher priority, e.g., Politics=10, Sports=50)
 - Do NOT invent explanations
 - Do NOT return markdown
 - Respond ONLY valid JSON in this exact format:
@@ -803,7 +833,10 @@ Rules:
 {
   "category": {
     "en": "string",
-    "kh": "string"
+    "kh": "string",
+    "description": "string (optional, only for new categories)",
+    "color": "string (optional, only for new categories, hex format)",
+    "order": number (optional, only for new categories, 1-100)
   },
   "tags": [
     { "en": "string", "kh": "string" }
