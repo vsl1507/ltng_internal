@@ -4,7 +4,7 @@ export const OLLAMA_LOCAL_MODEL =
   process.env.OLLAMA_LOCAL_MODEL || "qwen2.5:14b";
 export const OLLAMA_CLOUD_MODEL =
   process.env.OLLAMA_CLOUD_MODEL || "gpt-oss:120b-cloud";
-export const OLLAMA_TIMEOUT = Number(process.env.OLLAMA_TIMEOUT) || 2000;
+export const OLLAMA_TIMEOUT = Number(process.env.OLLAMA_TIMEOUT) || 20000;
 export const OLLAMA_TEMPERATURE = Number(process.env.OLLAMA_TEMPERATURE);
 export const TEXT_COMPARISON_LIMIT =
   Number(process.env.TEXT_COMPARISON_LIMIT) || 3000;

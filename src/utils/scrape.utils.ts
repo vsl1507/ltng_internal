@@ -2,6 +2,7 @@ import axios from "axios";
 import pool from "../config/mysql.config";
 import {
   OLLAMA_API_KEY,
+  OLLAMA_CLOUD_MODEL,
   OLLAMA_LOCAL_MODEL,
   OLLAMA_TIMEOUT,
   OLLAMA_URL,
@@ -57,7 +58,7 @@ export async function calculateTextSimilarity(
     const res = await axios.post(
       `${OLLAMA_URL}/api/generate`,
       {
-        model: OLLAMA_LOCAL_MODEL,
+        model: OLLAMA_CLOUD_MODEL,
         prompt,
         stream: false,
         options: SIMILARITY_CONFIG,
@@ -70,6 +71,8 @@ export async function calculateTextSimilarity(
         },
       }
     );
+
+    console.log("res: ", res);
 
     if (!res.data?.response) {
       throw new Error("Empty response from Ollama");
@@ -95,28 +98,49 @@ function buildSimilarityPrompt(text1: string, text2: string): string {
   const truncate = (text: string, maxLength: number = TEXT_COMPARISON_LIMIT) =>
     text.length > maxLength ? text.substring(0, maxLength) + "..." : text;
 
-  return `
-  You are a semantic similarity analyzer. Compare these articles FACTUALLY.
+  return `You are a STRICT semantic comparison engine.
 
-  SAME STORY = Same event (who, what, when, where, why match)
+TASK: Determine whether Article 1 and Article 2 describe the SAME REAL-WORLD EVENT.
 
-  INSTRUCTIONS:
-  - Ignore style, formatting, emojis, hashtags
-  - Focus ONLY on core facts
-  - If 80%+ facts match → same_story = true
-  - Breaking news = urgent, time-sensitive, recent events
+DEFINITION: "SAME STORY" means BOTH articles describe:
+- the same people or group
+- the same date or time period
+- the same location
+- the same action
+- the same purpose or outcome
 
-  Article 1: ${truncate(text1)}
+RULES:
+- Compare ONLY meaning and facts
+- IGNORE writing style, formatting, emojis, hashtags
+- IGNORE duplicated or truncated sentences
+- Do NOT infer missing facts
+- If core facts match → same_story = true
 
-  Article 2: ${truncate(text2)}
+BREAKING NEWS CLASSIFICATION:
+- BREAKING NEWS: New, urgent, time-sensitive events
+- Indicators: "today", "now", "just", "latest", "breaking"
+- Emergency, crisis, attack, disaster, arrest, resignation
 
-  Respond with ONLY this JSON (no markdown):
-  { "same_story": true/false, 
-    "difference": 0-100, 
-    "is_breaking": true/false, 
-    "confidence": 0.0-1.0, 
-    "reasoning": "brief explanation"
-  }`;
+Article 1:
+<<<
+${truncate(text1)}
+>>>
+
+Article 2:
+<<<
+${truncate(text2)}
+>>>
+
+Respond ONLY with valid JSON. NO markdown. NO extra text.
+
+JSON FORMAT:
+{
+  "same_story": true or false,
+  "difference": 0-100,
+  "is_breaking": true or false,
+  "confidence": 0.0-1.0,
+  "reasoning": "one short sentence"
+};`;
 }
 
 /**

@@ -19,7 +19,7 @@ export interface SimilarityResult {
 
 export const SIMILARITY_CONFIG = {
   temperature: 0.1,
-  num_predict: 200,
+  num_predict: 1000,
   num_ctx: 6144,
   top_p: 0.9,
   top_k: 10,

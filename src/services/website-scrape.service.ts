@@ -191,14 +191,14 @@ export class WebsiteScrapeService {
           config
         );
 
-        const articleSource: any = await pool.query(
+        const [articleRows]: any = await pool.query(
           "SELECT * FROM ltng_news_radar WHERE radar_id = ?",
           [articleId]
         );
 
         console.log(
           "articleSource.radar_story_number: ",
-          articleSource.radar_story_number
+          articleRows[0]?.radar_story_number
         );
 
         if (articleId) {
@@ -209,7 +209,7 @@ export class WebsiteScrapeService {
             article,
             articleId,
             config.website.base_url,
-            articleSource.radar_story_number,
+            articleRows[0]?.radar_story_number || 0,
             config
           );
 

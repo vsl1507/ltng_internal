@@ -162,8 +162,8 @@ export class ScrapeService {
           config
         );
 
-        const article: any = await pool.query(
-          "SELECT * FROM ltng_news_radar WHERE id = ?",
+        const [articleRows]: any = await pool.query(
+          "SELECT * FROM ltng_news_radar WHERE radar_id = ?",
           [articleId]
         );
 
@@ -174,7 +174,7 @@ export class ScrapeService {
           const mediaDownloaded = await this.handleMedia(
             mediaGroup,
             articleId,
-            article.radar_story_number,
+            articleRows[0]?.radar_story_number || 0,
             config
           );
 
@@ -183,7 +183,7 @@ export class ScrapeService {
           }
 
           // Process with AI
-          await this.processWithAI(articleId);
+          // await this.processWithAI(articleId);
         }
       } catch (error) {
         console.error(`❌ Failed to process message ${message.id}:`, error);

@@ -23,6 +23,12 @@ export interface WebsiteCommonConfig {
     prefer_local_ollama: boolean;
   };
 
+  relevance: {
+    enabled: boolean;
+    check_cambodia_world_news: boolean;
+    min_confidence: number;
+  };
+
   state: {
     last_fetched_at: string | null;
     last_item_id: string | null;
